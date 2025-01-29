@@ -15,7 +15,7 @@ namespace cudaq {
 void PasqalServerHelper::initialize(BackendConfig config) {
   cudaq::info("Initialize Pasqal Cloud.");
 
-// Hard-coded for now.
+  // Hard-coded for now.
   const std::string FRESNEL = "fresnel1";
   const int MAX_QUBITS = 100;
   auto machine = FRESNEL;

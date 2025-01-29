@@ -23,4 +23,10 @@ target-arguments:
     required: false
     type: string
     platform-arg: machine
-    help-string: "Specify the pasqal QPU."
+    help-string: "Specify the Pasqal QPU."
+  - key: emu_free
+    required: false
+    type: string
+    platform-arg: emu_free
+    help-string: "Specify the Pasqal emulator."
+
