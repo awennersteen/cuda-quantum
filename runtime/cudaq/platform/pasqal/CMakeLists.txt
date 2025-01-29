@@ -6,18 +6,12 @@
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
-include(HandleLLVMOptions)
-add_subdirectory(default)
-if (OPENSSL_FOUND)
-  add_subdirectory(orca)
-endif()
-if (CUDAQ_ENABLE_REST)
-  add_subdirectory(mqpu)
-endif()
+target_sources(cudaq-rest-qpu PRIVATE PasqalServerHelper.cpp)
 
-add_subdirectory(fermioniq)
-if (AWSSDK_ROOT)
-  add_subdirectory(quera)
-endif()
-
-add_subdirectory(pasqal)
+add_library(cudaq-serverhelper-pasqal SHARED PasqalServerHelper.cpp )
+target_link_libraries(cudaq-serverhelper-pasqal
+  PUBLIC 
+    cudaq-common 
+    fmt::fmt-header-only 
+)
+install(TARGETS cudaq-serverhelper-pasqal DESTINATION lib)

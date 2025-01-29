@@ -6,18 +6,21 @@
 # the terms of the Apache License 2.0 which accompanies this distribution.     #
 # ============================================================================ #
 
-include(HandleLLVMOptions)
-add_subdirectory(default)
-if (OPENSSL_FOUND)
-  add_subdirectory(orca)
-endif()
-if (CUDAQ_ENABLE_REST)
-  add_subdirectory(mqpu)
-endif()
+name: pasqal
+description: "CUDA-Q target for pasqal."
+config:
+  # Tell DefaultQuantumPlatform what QPU subtype to use
+  platform-qpu: pasqal
+  # Add the pasqal-qpu library to the link list
+  link-libs: ["-lcudaq-pasqal-qpu"]
+  # Library mode is only for simulators, physical backends must turn this off
+  library-mode: false
+  # Tell NVQ++ to generate glue code to set the target backend name
+  gen-target-backend: true
 
-add_subdirectory(fermioniq)
-if (AWSSDK_ROOT)
-  add_subdirectory(quera)
-endif()
-
-add_subdirectory(pasqal)
+target-arguments:
+  - key: machine
+    required: false
+    type: string
+    platform-arg: machine
+    help-string: "Specify the pasqal QPU."
