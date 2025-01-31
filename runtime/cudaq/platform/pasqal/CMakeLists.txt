@@ -11,6 +11,7 @@ message(STATUS "Building Pasqal REST QPU.")
 
 add_library(${LIBRARY_NAME}
   SHARED
+    PasqalExecutor.cpp
     PasqalRemoteRESTQPU.cpp
     PasqalServerHelper.cpp
 )
