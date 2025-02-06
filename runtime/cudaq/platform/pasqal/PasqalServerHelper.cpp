@@ -16,14 +16,12 @@ void PasqalServerHelper::initialize(BackendConfig config) {
   cudaq::info("Initialize Pasqal Cloud.");
 
   // Hard-coded for now.
-  const std::string SERVER = "prod";
   const std::string FRESNEL = "fresnel1";
-  const int MAX_QUBITS = 100;
   auto machine = FRESNEL;
+  const int MAX_QUBITS = 100;
 
   cudaq::info("Running on device {}", machine);
 
-  config["server"] = SERVER;
   config["machine"] = machine;
   config["qubits"] = MAX_QUBITS;
 
@@ -73,7 +71,7 @@ PasqalServerHelper::createJob(std::vector<KernelExecution> &circuitCodes) {
               backendConfig.at("machine"));
   
   // Return a tuple containing the job path, headers, and the job message
-  return std::make_tuple(baseUrl + "v1/" + backendConfig.at("server"), getHeaders(), tasks);
+  return std::make_tuple(baseUrl + "/v1/cuda-q/job", getHeaders(), tasks);
 }
 
 std::string PasqalServerHelper::extractJobId(ServerMessage &postResponse) {

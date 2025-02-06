@@ -12,7 +12,7 @@ namespace cudaq {
 
 class PasqalServerHelper : public ServerHelper {
 protected:
-  const std::string baseUrl = "https://pasqal.cloud/";
+  const std::string baseUrl = "https://apis.pasqal.cloud";
   
 public:
   /// @brief Returns the name of the server helper.
