@@ -200,7 +200,6 @@ def evolve_single(
         shots_count: Optional[int] = None) -> cudaq_runtime.EvolveResult:
     analog_targets = ["pasqal", "quera"]
     target_name = cudaq_runtime.get_target().name
-
     if target_name == "dynamics":
         try:
             from .cudm_solver import evolve_dynamics
@@ -354,7 +353,6 @@ def evolve(
     """
     analog_targets = ["pasqal", "quera"]
     target_name = cudaq_runtime.get_target().name
-
     if not isinstance(schedule, Schedule):
         raise ValueError(
             f"Invalid argument `schedule` for target {target_name}.")
@@ -424,7 +422,6 @@ def evolve_single_async(
         shots_count: Optional[int] = None) -> cudaq_runtime.AsyncEvolveResult:
     analog_targets = ["pasqal", "quera"]
     target_name = cudaq_runtime.get_target().name
-
     if target_name == "dynamics":
         try:
             from .cudm_solver import evolve_dynamics

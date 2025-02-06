@@ -1277,7 +1277,6 @@ class RydbergHamiltonian(OperatorSum):
     
     Ref: https://docs.aws.amazon.com/braket/latest/developerguide/braket-quera-submitting-analog-program-aquila.html#braket-quera-ahs-program-schema
     """
-
     def __init__(self,
                  atom_sites: Iterable[tuple[float, float]],
                  amplitude: ScalarOperator,
