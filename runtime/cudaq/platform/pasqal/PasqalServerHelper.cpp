@@ -73,7 +73,7 @@ PasqalServerHelper::createJob(std::vector<KernelExecution> &circuitCodes) {
               backendConfig.at("machine"));
   
   // Return a tuple containing the job path, headers, and the job message
-  return std::make_tuple(baseUrl + apiPath, getHeaders(), tasks);
+  return std::make_tuple(baseUrl + apiPath + "/cudaq/job", getHeaders(), tasks);
 }
 
 std::string PasqalServerHelper::extractJobId(ServerMessage &postResponse) {
@@ -81,12 +81,12 @@ std::string PasqalServerHelper::extractJobId(ServerMessage &postResponse) {
 }
 
 std::string PasqalServerHelper::constructGetJobPath(std::string &jobId) {
-  return baseUrl + apiPath + "/" + jobId + "/results_link";
+  return baseUrl + apiPath + "/jobs/" + jobId + "/results_link";
 }
 
 std::string
 PasqalServerHelper::constructGetJobPath(ServerMessage &postResponse) {
-    return baseUrl + apiPath + "/" +
+    return baseUrl + apiPath + "/jobs/" +
       postResponse["id"].get<std::string>() + "/results_link";
 }
 
@@ -104,7 +104,7 @@ PasqalServerHelper::processResults(ServerMessage &postJobResponse,
                                    std::string &jobId) {
 
   auto jobStatus = postJobResponse["status"].get<std::string>();
-  if (jobStatus != "ready") 
+  if (jobStatus != "DONE") 
     throw std::runtime_error("Job status: " + jobStatus);
 
   sample_result res;
