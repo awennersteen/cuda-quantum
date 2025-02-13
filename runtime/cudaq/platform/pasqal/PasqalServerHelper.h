@@ -15,7 +15,7 @@ class PasqalServerHelper : public ServerHelper {
 protected:
   /// @brief Pasqal's REST API.
   const std::string baseUrl = "https://apis.pasqal.cloud";
-  const std::string apiPath = "/core-fast/api/v1";
+  const std::string apiPath = "/core-fast/api";
 
 public:
   /// @brief Returns the name of the server helper.

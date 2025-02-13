@@ -60,7 +60,7 @@ PasqalServerHelper::createJob(std::vector<KernelExecution> &circuitCodes) {
   for (auto &circuitCode : circuitCodes) {
     ServerMessage message;
     message["name"] = circuitCode.name;
-    message["device"] = backendConfig.at("machine");
+    message["machine"] = backendConfig.at("machine");
     message["shots"] = shots;
 
     auto action = nlohmann::json::parse(circuitCode.code);
@@ -81,13 +81,13 @@ std::string PasqalServerHelper::extractJobId(ServerMessage &postResponse) {
 }
 
 std::string PasqalServerHelper::constructGetJobPath(std::string &jobId) {
-  return baseUrl + apiPath + "/jobs/" + jobId + "/results_link";
+  return baseUrl + apiPath + "/v1/jobs/" + jobId + "/results";
 }
 
 std::string
 PasqalServerHelper::constructGetJobPath(ServerMessage &postResponse) {
-    return baseUrl + apiPath + "/jobs/" +
-      postResponse["id"].get<std::string>() + "/results_link";
+    return baseUrl + apiPath + "/v1/jobs/" +
+      postResponse["id"].get<std::string>() + "/results";
 }
 
 bool PasqalServerHelper::jobIsDone(ServerMessage &getJobResponse) {
