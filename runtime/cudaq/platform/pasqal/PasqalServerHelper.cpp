@@ -10,6 +10,7 @@
 #include "common/Logger.h"
 #include "PasqalServerHelper.h"
 
+#include <unordered_map>
 #include <unordered_set>
 
 namespace cudaq {
@@ -94,7 +95,7 @@ bool PasqalServerHelper::jobIsDone(ServerMessage &getJobResponse) {
   std::unordered_set<std::string>
   terminals = {"PENDING", "RUNNING", "DONE", "ERROR", "CANCEL"};
   
-  auto jobStatus = getJobResponse["status"].get<std::string>();
+  auto jobStatus = getJobResponse["data"]["status"].get<std::string>();
   return terminals.find(jobStatus) != terminals.end();
 }
 
@@ -103,12 +104,19 @@ sample_result
 PasqalServerHelper::processResults(ServerMessage &postJobResponse,
                                    std::string &jobId) {
 
-  auto jobStatus = postJobResponse["status"].get<std::string>();
+  auto jobStatus = postJobResponse["data"]["status"].get<std::string>();
   if (jobStatus != "DONE") 
     throw std::runtime_error("Job status: " + jobStatus);
 
-  sample_result res;
-  return res;
+  std::vector<ExecutionResult> results;
+  auto jobs = postJobResponse["data"]["jobs"];
+  for (auto &job : jobs) {
+    auto result = job["full_result"]["counter"].get<std::unordered_map<std::string, std::size_t>>();
+    results.push_back(ExecutionResult(result));
+  }
+
+  // TODO: Check the index order.
+  return sample_result(results);
 }
 
 } // namespace cudaq
