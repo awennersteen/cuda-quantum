@@ -14,8 +14,8 @@ const std::string sampleSequence = R"(
 {
   "setup": {
     "ahs_register": {
-      "sites": [[0, 0], [0, 0.000006], [0.000006, 0]],
-      "filling": [1, 1, 1],
+      "sites": [["0.0", "0.0"], ["0.0", "0.000006"], ["0.000006", "0.0"]],
+      "filling": [1, 1, 1]
     }
   },
   "hamiltonian": {
@@ -23,31 +23,73 @@ const std::string sampleSequence = R"(
       {
         "amplitude": {
           "time_series": {
-            "values": [0.0, 10700000.0, 10700000.0, 0.0],
-            "times": [0.0, 0.000001, 0.000002, 0.000003],
+            "values": ["0.0", "10700000.0", "10700000.0", "0.0"],
+            "times": ["0.0", "0.000001", "0.000002", "0.000003"]
           },
-            "pattern": "uniform",
+            "pattern": "uniform"
         },
         "phase": {
-          "time_series": {"values": [0], "times": [0]},
-          "pattern": "uniform",
+          "time_series": {"values": ["0.0"], "times": ["0.0"]},
+          "pattern": "uniform"
         },
         "detuning": {
           "time_series": {
-            "values": [-5400000.0, 5400000.0],
-            "times": [0.0, 0.000003],
+            "values": ["-5400000.0", "5400000.0"],
+            "times": ["0.0", "0.000003"]
           },
-          "pattern": "uniform",
+          "pattern": "uniform"
         }
       }
     ],
-    "localDetuning": [],
+    "localDetuning": []
   }
 })";
 
-CUDA_TEST(PasqalTester, checkHamiltonianJson) {
+const std::string resnposeSample = R"(
+{
+  "code": 200,
+  "data": {
+    "open": false,
+    "created_at": "2021-11-10T15:24:38.155824",
+    "device_type": "MOCK_DEVICE",
+    "project_id": "00000000-0000-0000-0000-000000000001",
+    "id": "00000000-0000-0000-0000-000000000001",
+    "priority": 10,
+    "sequence_builder": "pulser_test_sequence",
+    "status": "DONE",
+    "updated_at": "2021-11-10T15:27:44.110274",
+    "user_id": "EQZj1ZQE",
+    "webhook": "10.0.1.5",
+    "jobs": [
+      {
+        "batch_id": "00000000-0000-0000-0000-000000000001",
+        "id": "00000000-0000-0000-0000-000000022010",
+        "project_id": "00000000-0000-0000-0000-000000022111",
+        "runs": 50,
+        "status": "DONE",
+        "created_at": "2021-11-10T15:27:06.698066",
+        "errors": [],
+        "result": { "1001": 12, "0110": 35, "1111": 1 },
+        "full_result": {
+          "counter": { "1001": 12, "0110": 35, "1111": 1 },
+          "raw": ["1001", "1001", "0110", "1001", "0110"]
+        },
+        "updated_at": "2021-11-10T15:27:06.698066",
+        "variables": {
+          "Omega_max": 14.4,
+          "last_target": "q1",
+          "ts": [200, 500]
+        }
+      }
+    ]
+  },
+  "message": "OK.",
+  "status": "success"
+})";
+
+CUDAQ_TEST(PasqalTester, checkHamiltonianJson) {
   cudaq::ahs::AtomArrangement layout;
-  layout.site = {{0.0, 0.0}, {0.0, 6.0e-6}, {6.0e-6, 0.0}};
+  layout.sites = {{0.0, 0.0}, {0.0, 6.0e-6}, {6.0e-6, 0.0}};
   layout.filling = {1, 1, 1};
 
   cudaq::ahs::PhysicalField amplitude;
@@ -71,7 +113,7 @@ CUDA_TEST(PasqalTester, checkHamiltonianJson) {
   sequence.setup.ahs_register = layout;
   sequence.hamiltonian.drivingFields = {drive};
 
+  nlohmann::json serializedSequence = sequence;
   cudaq::ahs::Program refSequence = nlohmann::json::parse(sampleSequence);
-
-  EXPECT_EQ(sequence, refSequence);
+  EXPECT_EQ(serializedSequence, refSequence);
 }
