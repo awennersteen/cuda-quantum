@@ -19,13 +19,12 @@ void PasqalServerHelper::initialize(BackendConfig config) {
   cudaq::info("Initialize Pasqal Cloud.");
 
   // Hard-coded for now.
-  const std::string FRESNEL = "Fresnel";
-  auto machine = FRESNEL;
+  const std::string MACHINE = "EMU_MPS";
   const int MAX_QUBITS = 100;
 
-  cudaq::info("Running on device {}", machine);
+  cudaq::info("Running on device {}", MACHINE);
 
-  config["machine"] = machine;
+  config["machine"] = MACHINE;
   config["qubits"] = MAX_QUBITS;
 
   if(!config["shots"].empty())
@@ -52,7 +51,7 @@ RestHeaders PasqalServerHelper::getHeaders() {
   std::map<std::string, std::string> headers{
     {"Authorization", token},
     {"Content-Type", "application/json"},
-    {"User-Agent", "cudaq/Pasqal"},
+    {"User-Agent", "Cudaq/Pasqal"},
     {"Connection", "keep-alive"},
     {"Accept", "*/*"}};
 
