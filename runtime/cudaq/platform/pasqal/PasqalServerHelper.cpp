@@ -19,12 +19,14 @@ void PasqalServerHelper::initialize(BackendConfig config) {
   cudaq::info("Initialize Pasqal Cloud.");
 
   // Hard-coded for now.
-  const std::string MACHINE = "EMU_MPS";
+  const std::string MACHINE = "Fresnel";
   const int MAX_QUBITS = 100;
 
   cudaq::info("Running on device {}", MACHINE);
 
-  config["machine"] = MACHINE;
+  if (!config.contains("machine"))
+    config["machine"] = MACHINE;
+    
   config["qubits"] = MAX_QUBITS;
 
   if(!config["shots"].empty())
