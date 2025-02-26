@@ -50,6 +50,7 @@ details::future Executor::execute(std::vector<KernelExecution> &codesToExecute,
 
     i++;
   }
+
   config.insert({"shots", std::to_string(shots)});
   std::string name = serverHelper->name();
   return details::future(ids, name, config, isObserve);
