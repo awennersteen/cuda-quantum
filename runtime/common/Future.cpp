@@ -33,6 +33,7 @@ sample_result future::get() {
 
     cudaq::info("Future got job retrieval path as {}.", jobGetPath);
     auto resultResponse = client.get(jobGetPath, "", headers);
+    cudaq::info("Future got job retrieval result as {}.", resultResponse);
     while (!serverHelper->jobIsDone(resultResponse)) {
       auto polling_interval =
           serverHelper->nextResultPollingInterval(resultResponse);

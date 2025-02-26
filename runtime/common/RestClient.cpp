@@ -149,6 +149,7 @@ nlohmann::json RestClient::get(const std::string_view remoteUrl,
 
   cpr::Parameters cprParams;
   auto actualPath = std::string(remoteUrl) + std::string(path);
+  cudaq::info("Making get request to {}", actualPath);
   auto r = cpr::Get(cpr::Url{actualPath}, cprHeaders, cprParams,
                     cpr::VerifySsl(enableSsl), *sslOptions);
 
@@ -156,13 +157,34 @@ nlohmann::json RestClient::get(const std::string_view remoteUrl,
     throw std::runtime_error("HTTP GET Error - status code " +
                              std::to_string(r.status_code) + ": " +
                              r.error.message + ": " + r.text);
-
   // cpr used to do this automatically but no longer does as of PR #1010
   if (r.header["Content-Encoding"] == "gzip") {
     auto tmp = decompress_gzip(r.text);
     r.text = tmp;
   }
-  return nlohmann::json::parse(r.text);
+  auto valid_json = nlohmann::json::accept(r.text);
+  cudaq::info("The json is valid: {}", valid_json);
+  // return nlohmann::json::parse(r.text);
+  nlohmann::json j;
+  nlohmann::json j2;
+  nlohmann::json j3;
+  nlohmann::json j4;
+  cudaq::info("Beginning custom json");
+  j4["100"] = "100";
+  cudaq::info("OK");
+  j3["a137d1c2-7489-481d-b16f-a74416f85903"] = j4;
+  cudaq::info("is this ok?, j4");
+  j2["id"] = "a137d1c2-7489-481d-b16f-a74416f85903";
+  j2["status"] = "PENDING";
+  j2["result"] = j3;
+  cudaq::info("is this ok?, j3");
+  j["status"] = "success";
+  j["message"] = "OK.";
+  j["code"] = "200";
+  j["data"] = j2;
+  cudaq::info("is this ok?, j2");
+  cudaq::info("The json is {}", j.dump());
+  return j;
 }
 
 void RestClient::del(const std::string_view remoteUrl,
