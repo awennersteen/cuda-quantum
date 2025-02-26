@@ -44,14 +44,6 @@ const std::string sampleSequence = R"(
   }
 })";
 
-const std::string responseSample = R"(
-{"status":"success","message":"OK.","code":"200","data":{"id":"6ebb665b-9445-450e-8a86-741677a5c869","status":"PENDING","result":{}}}
-)";
-
-const std::string responseSampleResult = R"(
-{'id': '6ebb665b-9445-450e-8a86-741677a5c869', 'status': 'DONE', 'result': {'daab9abe-0ab9-41ac-8c6b-23be1f8d342d': {'010': 25, '000': 39, '001': 18, '100': 18}}}
-)";
-
 CUDAQ_TEST(PasqalTester, checkHamiltonianJson) {
   cudaq::ahs::AtomArrangement layout;
   layout.sites = {{0.0, 0.0}, {0.0, 6.0e-6}, {6.0e-6, 0.0}};
@@ -80,17 +72,4 @@ CUDAQ_TEST(PasqalTester, checkHamiltonianJson) {
   nlohmann::json serializedSequence = sequence;
   cudaq::ahs::Program refSequence = nlohmann::json::parse(sampleSequence);
   EXPECT_EQ(serializedSequence, refSequence);
-}
-
-CUDAQ_TEST(PasqalTester, checkGetJobResponse) {
-  auto resp1 = nlohmann::json::parse(responseSample);
-  cudaq::ahs::PasqalJobResponse resp = nlohmann::json::parse(responseSample);
-  EXPECT_EQ(resp1, resp);
-}
-
-CUDAQ_TEST(PasqalTester, checkGetJobResponseResult) {
-  auto resp1 = nlohmann::json::parse(responseSampleResult);
-  cudaq::ahs::PasqalJobResponse resp =
-      nlohmann::json::parse(responseSampleResult);
-  EXPECT_EQ(resp1, resp);
 }

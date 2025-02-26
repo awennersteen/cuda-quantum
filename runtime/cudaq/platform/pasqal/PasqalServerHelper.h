@@ -7,7 +7,6 @@
  ******************************************************************************/
 
 #pragma once
-#include "common/RestClient.h"
 #include "common/ServerHelper.h"
 #include "nlohmann/json.hpp"
 

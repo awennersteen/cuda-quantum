@@ -210,7 +210,7 @@ struct Program {
 
 ///////////////////////////////////////////////////////////////////////////////
 // The following classes represent the result of Analog Hamiltonian Simulation
-// program for the Quera backend
+// program for the QuEra backend
 
 /// @brief Represents the metadata of the shot
 struct ShotMetadata {
@@ -328,75 +328,6 @@ struct TaskResult {
     FROM_JSON_HELPER(taskMetadata);
     FROM_JSON_OPT_HELPER(measurements);
     FROM_JSON_OPT_HELPER(additionalMetadata);
-  }
-};
-
-// struct PasqalResult
-//  {'id': '6ebb665b-9445-450e-8a86-741677a5c869', 'status': 'DONE', 'result':
-//  {'daab9abe-0ab9-41ac-8c6b-23be1f8d342d': {'010': 25, '000': 39, '001': 18,
-//  '100': 18}}} if too annoying, sth like:
-//  {'id': '6ebb665b-9445-450e-8a86-741677a5c869', 'status': 'DONE', 'job':
-//  [{'daab9abe-0ab9-41ac-8c6b-23be1f8d342d': {'010': 25, '000': 39, '001': 18,
-//  '100': 18}}}] or
-//  {'id': '6ebb665b-9445-450e-8a86-741677a5c869', 'status': 'DONE', 'result':
-//  {'010': 25, '000': 39, '001': 18, '100': 18}} nlohmann::json
-//  }
-
-struct PasqalData {
-  std::string id;
-  std::string status;
-  nlohmann::json result;
-
-  PasqalData() = default;
-  PasqalData(std::string i, std::string s, nlohmann::json r) {
-    id = i;
-    status = s;
-    result = r;
-  }
-
-  friend void to_json(json &j, const PasqalData &p) {
-    TO_JSON_HELPER(id);
-    TO_JSON_HELPER(status);
-    TO_JSON_HELPER(result);
-  }
-
-  friend void from_json(const json &j, PasqalData &p) {
-    FROM_JSON_HELPER(id);
-    FROM_JSON_HELPER(status);
-    FROM_JSON_HELPER(result);
-  }
-};
-
-/// Pasqal results
-struct PasqalJobResponse {
-  std::string status;
-  std::string message;
-  std::string code;
-  nlohmann::json data;
-
-  // data":{"id":"6ebb665b-9445-450e-8a86-741677a5c869","status":"PENDING","result":{}}}
-
-  PasqalJobResponse() = default;
-  PasqalJobResponse(std::string s, std::string m, std::string c,
-                    nlohmann::json d) {
-    status = s;
-    message = m;
-    code = c;
-    data = d;
-  }
-
-  friend void to_json(json &j, const PasqalJobResponse &p) {
-    TO_JSON_HELPER(status);
-    TO_JSON_HELPER(message);
-    TO_JSON_HELPER(code);
-    TO_JSON_HELPER(data);
-  }
-
-  friend void from_json(const json &j, PasqalJobResponse &p) {
-    FROM_JSON_HELPER(status);
-    FROM_JSON_HELPER(message);
-    FROM_JSON_HELPER(code);
-    FROM_JSON_HELPER(data);
   }
 };
 

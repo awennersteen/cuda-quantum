@@ -98,22 +98,18 @@ PasqalServerHelper::constructGetJobPath(ServerMessage &postResponse) {
 bool PasqalServerHelper::jobIsDone(ServerMessage &getJobResponse) {
   std::unordered_set<std::string> terminals = {"DONE", "ERROR", "CANCELED",
                                                "TIMED_OUT", "PAUSED"};
-  cudaq::info("In jobIsDone");
   auto jobStatus = getJobResponse["data"]["status"].get<std::string>();
   return terminals.find(jobStatus) != terminals.end();
 }
 
 sample_result PasqalServerHelper::processResults(ServerMessage &postJobResponse,
                                                  std::string &jobId) {
-  cudaq::info("In processResults");
   std::vector<ExecutionResult> results;
   auto jobs = postJobResponse["data"]["result"];
   for (auto &job : jobs) {
     // loop over jobs in batch to get results
     // Current implementation only has 1 job
-    cudaq::info("Getting job result");
-    auto result =
-        job["result"].get<std::unordered_map<std::string, std::size_t>>();
+    auto result = job.get<std::unordered_map<std::string, std::size_t>>();
     results.push_back(ExecutionResult(result));
   } // TODO: Check the index order.
   return sample_result(results);
