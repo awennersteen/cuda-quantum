@@ -5,6 +5,7 @@
  * This source code and the accompanying materials are made available under    *
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
+
 #include "RestClient.h"
 #include "Logger.h"
 #include "cudaq/utils/cudaq_utils.h"
@@ -155,6 +156,7 @@ nlohmann::json RestClient::get(const std::string_view remoteUrl,
     throw std::runtime_error("HTTP GET Error - status code " +
                              std::to_string(r.status_code) + ": " +
                              r.error.message + ": " + r.text);
+
   // cpr used to do this automatically but no longer does as of PR #1010
   if (r.header["Content-Encoding"] == "gzip") {
     auto tmp = decompress_gzip(r.text);
