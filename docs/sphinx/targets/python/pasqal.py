@@ -1,6 +1,9 @@
+import os
+
 import cudaq
-from cudaq.operators import RydbergHamiltonian, ScalarOperator
 from cudaq.dynamics import Schedule
+from cudaq.operators import RydbergHamiltonian, ScalarOperator
+from pasqal_cloud import SDK
 
 # This example illustrates how to use Pasqal's EMU_MPS emulator over Pasqal's cloud via CUDA-Q.
 # It uses the direct `pasqal` target with Pasqal credentials.
@@ -9,6 +12,8 @@ from cudaq.dynamics import Schedule
 #
 # To obtain the authentication token for the cloud  we recommend logging in with
 # Pasqal's Python SDK. See our documentation https://docs.pasqal.com/cloud/ for more.
+# As an alternative, CUDA-Q can also read `token` and `project_id` from
+# `~/.pasqal/config` for the direct `pasqal` target.
 #
 # Contact Pasqal at help@pasqal.com or through https://community.pasqal.com for assistance.
 #
@@ -17,8 +22,7 @@ from cudaq.dynamics import Schedule
 #
 # For more details on the EMU_MPS emulator see the documentation of the open-source
 # package: https://pasqal-io.github.io/emulators/latest/emu_mps/.
-from pasqal_cloud import SDK
-import os
+
 
 # We recommend leaving the password empty in an interactive session as you will be
 # prompted to enter it securely via the command line interface.

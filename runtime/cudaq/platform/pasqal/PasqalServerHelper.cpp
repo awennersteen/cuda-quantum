@@ -12,9 +12,109 @@
 #include "cudaq/runtime/logger/logger.h"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
+#include <optional>
+#include <string_view>
 #include <unordered_set>
+#include <vector>
 
 namespace cudaq {
+namespace {
+
+struct PasqalConfig {
+  std::optional<std::string> token;
+  std::optional<std::string> projectId;
+};
+
+std::string trim(std::string_view value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string_view::npos)
+    return "";
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return std::string(value.substr(begin, end - begin + 1));
+}
+
+std::string stripQuotes(std::string value) {
+  if (value.size() < 2)
+    return value;
+  const auto front = value.front();
+  const auto back = value.back();
+  if ((front == '"' && back == '"') || (front == '\'' && back == '\''))
+    return value.substr(1, value.size() - 2);
+  return value;
+}
+
+std::string toLower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+std::optional<std::string> readNonEmptyEnv(const char *name) {
+  if (auto *value = std::getenv(name)) {
+    auto normalized = trim(value);
+    if (!normalized.empty())
+      return normalized;
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> findReadableConfigPath() {
+  std::vector<std::string> candidates;
+
+  if (auto configRoot = readNonEmptyEnv("PASQAL_CONFIG_ROOT"))
+    candidates.push_back(*configRoot + "/.pasqal/config");
+  if (auto home = readNonEmptyEnv("HOME"))
+    candidates.push_back(*home + "/.pasqal/config");
+
+  for (const auto &candidate : candidates) {
+    std::ifstream stream(candidate);
+    if (stream.good())
+      return candidate;
+  }
+
+  return std::nullopt;
+}
+
+PasqalConfig readPasqalConfig() {
+  auto configPath = findReadableConfigPath();
+  if (!configPath)
+    return {};
+
+  std::ifstream stream(*configPath);
+  if (!stream.is_open())
+    return {};
+
+  PasqalConfig config;
+  std::string line;
+  while (std::getline(stream, line)) {
+    auto normalized = trim(line);
+    if (normalized.empty() || normalized.front() == '#' ||
+        normalized.front() == ';')
+      continue;
+
+    auto equalsPos = normalized.find('=');
+    if (equalsPos == std::string::npos)
+      continue;
+
+    auto key = toLower(trim(normalized.substr(0, equalsPos)));
+    auto value = trim(stripQuotes(trim(normalized.substr(equalsPos + 1))));
+    if (key.empty() || value.empty())
+      continue;
+
+    if (key == "token")
+      config.token = value;
+    else if (key == "project_id")
+      config.projectId = value;
+  }
+
+  return config;
+}
+
+} // namespace
 
 void PasqalServerHelper::initialize(BackendConfig config) {
   CUDAQ_INFO("Initialize Pasqal Cloud.");
@@ -33,10 +133,27 @@ void PasqalServerHelper::initialize(BackendConfig config) {
   if (!config["shots"].empty())
     setShots(std::stoul(config["shots"]));
 
-  if (auto project_id = std::getenv("PASQAL_PROJECT_ID"))
-    config["project_id"] = project_id;
-  else
+  auto pasqalConfig = readPasqalConfig();
+
+  if (auto authToken = readNonEmptyEnv("PASQAL_AUTH_TOKEN")) {
+    authToken_ = *authToken;
+    CUDAQ_INFO("Using Pasqal auth token from PASQAL_AUTH_TOKEN.");
+  } else if (pasqalConfig.token) {
+    authToken_ = *pasqalConfig.token;
+    CUDAQ_INFO("Using Pasqal auth token from ~/.pasqal/config.");
+  } else {
+    authToken_.clear();
+  }
+
+  if (auto projectId = readNonEmptyEnv("PASQAL_PROJECT_ID")) {
+    config["project_id"] = *projectId;
+    CUDAQ_INFO("Using Pasqal project id from PASQAL_PROJECT_ID.");
+  } else if (pasqalConfig.projectId) {
+    config["project_id"] = *pasqalConfig.projectId;
+    CUDAQ_INFO("Using Pasqal project id from ~/.pasqal/config.");
+  } else {
     config["project_id"] = "";
+  }
 
   parseConfigForCommonParams(config);
 
@@ -44,12 +161,12 @@ void PasqalServerHelper::initialize(BackendConfig config) {
 }
 
 RestHeaders PasqalServerHelper::getHeaders() {
-  std::string token;
-
-  if (auto auth_token = std::getenv("PASQAL_AUTH_TOKEN"))
-    token = "Bearer " + std::string(auth_token);
+  if (authToken_.empty())
+    CUDAQ_WARN("No PASQAL_AUTH_TOKEN found.");
   else
-    token = "Bearer ";
+    CUDAQ_INFO("Using PASQAL_AUTH_TOKEN for authentication.");
+  
+  auto token = std::string("Bearer ") + authToken_;
 
   std::map<std::string, std::string> headers{
       {"Authorization", token},

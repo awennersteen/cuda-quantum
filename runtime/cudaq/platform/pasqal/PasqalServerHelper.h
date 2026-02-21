@@ -63,6 +63,10 @@ public:
   /// @return
   sample_result processResults(ServerMessage &postJobResponse,
                                std::string &jobId) override;
+
+private:
+  /// @brief Authorization token resolved during initialize().
+  std::string authToken_;
 };
 
 } // namespace cudaq

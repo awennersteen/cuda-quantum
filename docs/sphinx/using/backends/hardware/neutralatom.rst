@@ -153,8 +153,10 @@ For support you can also join the `Pasqal Community <https://community.pasqal.co
 Setting Credentials
 ```````````````````
 
-An authentication token for the session must be obtained from Pasqal's cloud platform.
-For example from Python one can use the `pasqal-cloud package <https://github.com/pasqal-io/pasqal-cloud>`__ as below:
+The preferred authentication method is to obtain a short-lived token from
+Pasqal's SDK and export it for the current session. For example from Python one
+can use the `pasqal-cloud package <https://github.com/pasqal-io/pasqal-cloud>`__
+as below:
 
 .. code:: python
 
@@ -171,6 +173,16 @@ For example from Python one can use the `pasqal-cloud package <https://github.co
     os.environ['PASQAL_AUTH_TOKEN'] = str(token)
     os.environ['PASQAL_PROJECT_ID'] = 'your project id'
 
+Or we also support reading credentials from
+``~/.pasqal/config``:
+
+.. code:: ini
+
+  token=<pasqal token>
+  project_id=<project id>
+
+If both environment variables and ``~/.pasqal/config`` are present,
+environment variables take precedence.
 Alternatively, users can set the following environment variables directly.
 
 .. code:: bash
