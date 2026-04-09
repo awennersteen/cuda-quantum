@@ -6,14 +6,18 @@ from cudaq.operators import RydbergHamiltonian, ScalarOperator
 from pasqal_cloud import SDK
 
 # This example illustrates how to use Pasqal's EMU_MPS emulator over Pasqal's cloud via CUDA-Q.
-# It uses the direct `pasqal` target with Pasqal credentials.
-# For the QRMI-routed flow use a supported cluster and set `machine="qrmi"`
-# (see QRMI docs).
+# It supports two submission modes:
+# 1) direct (default): submit directly to Pasqal cloud to the `machine` chosen.
+# 2) qrmi: route jobs through QRMI under Slurm (set machine="qrmi").
+#    In this mode, backend selection comes from an HPC scheduler (`--qpu`)
+#    who passes the final target via SLURM_JOB_QPU_RESOURCES.
+#    It supports both cloud based and on-premises Pasqal machines, depending on the QRMI configuration.
 #
-# To obtain the authentication token for the cloud  we recommend logging in with
-# Pasqal's Python SDK. See our documentation https://docs.pasqal.com/cloud/ for more.
-# As an alternative, CUDA-Q can also read `token` and `project_id` from
-# `~/.pasqal/config` for the direct `pasqal` target.
+# Both use credentials from ~/.pasqal/config (token + project_id),
+# or PASQAL_AUTH_TOKEN and PASQAL_PROJECT_ID as env vars directly.
+# Additionally the Pasqal Cloud SDK allows interactive login and token retrieval
+# which is recommended for security reasons when possible.
+# See our documentation https://docs.pasqal.com/cloud/ for more.
 #
 # Contact Pasqal at help@pasqal.com or through https://community.pasqal.com for assistance.
 #
@@ -23,9 +27,7 @@ from pasqal_cloud import SDK
 # For more details on the EMU_MPS emulator see the documentation of the open-source
 # package: https://pasqal-io.github.io/emulators/latest/emu_mps/.
 
-
-# We recommend leaving the password empty in an interactive session as you will be
-# prompted to enter it securely via the command line interface.
+# This setup can be skipped for the QRMI submission mode.
 sdk = SDK(
     username=os.environ.get("PASQAL_USERNAME"),
     password=os.environ.get("PASQAL_PASSWORD", None),
@@ -33,7 +35,7 @@ sdk = SDK(
 
 os.environ["PASQAL_AUTH_TOKEN"] = str(sdk.user_token())
 
-# It is also mandatory to specify the project against which the execution will be billed.
+# In the cloud, it is also mandatory to specify the project against which the execution will be billed.
 # Uncomment this line to set it from Python, or export it as an environment variable
 # prior to execution. You can find your projects here: https://portal.pasqal.cloud/projects.
 # ```

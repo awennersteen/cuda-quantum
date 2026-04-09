@@ -16,6 +16,7 @@ This page contains a number of different applications implemented using CUDA-Q. 
    :hidden:
 
    /applications/python/qaoa
+   /applications/python/pasqal_mwis
    /applications/python/digitized_counterdiabatic_qaoa
    /applications/python/krylov
    /applications/python/qsci
@@ -98,6 +99,13 @@ This page contains a number of different applications implemented using CUDA-Q. 
             Learn the theory behind the Quantum Approximate Optimization Algorithm (QAOA) and how it can be used to solve the Max Cut problem.
         </div>
         <img src="../_static/app_title_images/qaoa_preview.png" alt="QAOA Preview" class="notebook-image">
+    </div>
+
+    <div class="notebook-entry" data-tags="optimization,dynamics,qpu,neutral">
+        <a href="../applications/python/pasqal_mwis.html" class="notebook-title">Neutral-Atom MIS (Pasqal-style)</a>
+        <div class="notebook-content">
+            Solve a graph Maximum Independent Set problem with a neutral-atom Rydberg Hamiltonian in CUDA-Q, adapted from Pulser's MWIS tutorial. Direct mode queries live Pasqal cloud device specs via the pasqal-cloud SDK; QRMI mode runs through Slurm backend selection.
+        </div>
     </div>
 
     <div class="notebook-entry" data-tags="chemistry,optimization,noiseless,gpu">

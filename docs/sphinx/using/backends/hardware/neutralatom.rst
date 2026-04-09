@@ -140,40 +140,54 @@ arrays to bring a practical quantum advantage to its customers and address real-
 The currently available Pasqal QPUs are analog quantum computers, and one, named Fresnel, is available through our cloud
 portal.
 
-In order to access Pasqal's devices you to sign up for an account on
+In order to access Pasqal's devices you need to sign up for an account on
 `Pasqal's cloud platform <https://portal.pasqal.cloud>`__.
 
-Although a different SDK, `Pasqal's Pulser library <https://pulser.readthedocs.io/en/latest/>`__, is a good
+Although a different SDK, `Pasqal's Pulser library <https://pulser.readthedocs.io/en/stable/>`__, is a good
 resource for getting started with analog neutral atom quantum computing.
 For support you can also join the `Pasqal Community <https://community.pasqal.com/>`__.
 
 
 .. _pasqal-backend:
 
-Setting Credentials
-```````````````````
+Quick Start
+```````````
 
-The preferred authentication method is to obtain a short-lived token from
-Pasqal's SDK and export it for the current session. For example from Python one
-can use the `pasqal-cloud package <https://github.com/pasqal-io/pasqal-cloud>`__
-as below:
+If credentials are already present in ``~/.pasqal/config``, direct Pasqal cloud
+submission and QRMI-routed submission use the same CUDA-Q target with different
+``machine`` values:
 
 .. code:: python
 
-    from pasqal_cloud import SDK
-    import os
+    import cudaq
 
-    sdk = SDK(
-        username=os.environ.get('PASQAL_USERNAME'),
-        password=os.environ.get('PASQAL_PASSWORD', None) # Ensures you will be securely prompted
-    )
+    # Direct Pasqal cloud execution.
+    cudaq.set_target("pasqal", machine="EMU_FREE")
 
-    token = sdk.user_token()
+    # QRMI-routed execution (backend chosen by Slurm --qpu at runtime).
+    cudaq.set_target("pasqal", machine="qrmi")
 
-    os.environ['PASQAL_AUTH_TOKEN'] = str(token)
-    os.environ['PASQAL_PROJECT_ID'] = 'your project id'
+When submitting through Slurm + QRMI, choose the backend with ``--qpu``:
 
-Or we also support reading credentials from
+.. code:: bash
+
+    sbatch --qpu=EMU_FREE my_pasqal_job.sh
+
+Application Examples
+````````````````````
+
+For application-level Pasqal workflows, see
+:doc:`/applications/python/pasqal_mwis`.
+
+Original Pulser references:
+
+- `QAA to solve a MWIS problem <https://pulser.readthedocs.io/en/v1.5.5/tutorials/mwis.html>`__
+- `QAOA and QAA to solve a QUBO problem <https://pulser.readthedocs.io/en/v1.4.0/tutorials/qubo.html>`__
+
+Setting Credentials
+```````````````````
+
+For direct Pasqal cloud execution, CUDA-Q reads credentials from
 ``~/.pasqal/config``:
 
 .. code:: ini
@@ -190,21 +204,36 @@ Alternatively, users can set the following environment variables directly.
   export PASQAL_AUTH_TOKEN=<>
   export PASQAL_PROJECT_ID=<>
 
+If you prefer to refresh short-lived tokens from Python, you can use the
+`pasqal-cloud package <https://github.com/pasqal-io/pasqal-cloud>`__:
+
+.. code:: python
+
+    from pasqal_cloud import SDK
+    import os
+
+    sdk = SDK(
+        username=os.environ.get('PASQAL_USERNAME'),
+        password=os.environ.get('PASQAL_PASSWORD', None) # Ensures you will be securely prompted
+    )
+
+    token = sdk.user_token()
+
+    os.environ['PASQAL_AUTH_TOKEN'] = str(token)
+    os.environ['PASQAL_PROJECT_ID'] = 'your project id'
+
 Pasqal via QRMI
 ```````````````
 
-CUDA-Q's ``pasqal`` target for routing Pasqal jobs through the vendor agnostic
-Quantum Resource Management Interface (QRMI), by specifying ``machine`` as ``qrmi``.
-This target enables integration with resource managers like Slurm for scheduling.
-Select the Pasqal backend with the ``--qpu`` option in ``sbatch`` and let QRMI
-handle submission.
+Use CUDA-Q's ``pasqal`` target with ``machine="qrmi"`` to route Pasqal jobs
+through the vendor agnostic Quantum Resource Management Interface (QRMI).
+This enables integration with resource managers like Slurm.
 
+In QRMI mode, backend selection comes from ``SLURM_JOB_QPU_RESOURCES``.
+With Slurm this is set from ``sbatch --qpu=<backend>``.
 
 For this route, credentials and project id are read by QRMI using either
 ``~/.pasqal/config`` or other methods supported by your cluster's QRMI setup.
-
-The job submission process is the same as for the ``pasqal`` target. For example:
-
 
 Submitting
 `````````````````````````
@@ -215,7 +244,11 @@ Submitting
 
         .. code:: python
 
-            cudaq.set_target('pasqal')
+            # Direct Pasqal cloud execution (default machine is EMU_MPS).
+            cudaq.set_target("pasqal", machine="EMU_MPS")
+
+            # QRMI-routed execution under Slurm.
+            cudaq.set_target("pasqal", machine="qrmi")
 
 
         This accepts an optional argument, ``machine``, which is used in the cloud platform to
@@ -275,6 +308,14 @@ Submitting
         .. code:: bash
 
             nvq++ --target pasqal --pasqal-machine EMU_FREE src.cpp
+
+        For QRMI-routed execution under Slurm, compile with ``qrmi`` and select
+        the backend at submit time with ``--qpu``:
+
+        .. code:: bash
+
+            nvq++ --target pasqal --pasqal-machine qrmi src.cpp
+            sbatch --qpu=EMU_FREE my_pasqal_job.sh
 
         To target the QPU use the FRESNEL machine name. Note that there are restrictions
         regarding the values of the pulses as well as the register layout. We invite you to

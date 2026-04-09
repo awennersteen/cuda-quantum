@@ -160,8 +160,11 @@ Pasqal
 ==================================
 
 The following code illustrates how to run kernels on Pasqal's backends.
-For QRMI-routed Pasqal jobs, specify ``pasqal`` as the target; the ``machine``
-argument is supplied by QRMI at runtime.
+
+- Direct Pasqal cloud flow: set ``machine`` to a Pasqal machine
+  (for example ``EMU_MPS``, ``EMU_FREE``, or ``FRESNEL``).
+- QRMI + Slurm flow: set ``machine="qrmi"`` and select the backend at submit
+  time with ``sbatch --qpu=<backend>``.
 
 .. tab:: Python
 

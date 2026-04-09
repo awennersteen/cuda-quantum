@@ -8,3 +8,6 @@ CUDA-Q provides a number of options to access hardware resources (GPUs and QPUs)
       
         Amazon Braket (braket) <cloud/braket.rst>
         Scaleway QaaS (scaleway) <cloud/scaleway.rst>
+
+- :ref:`Pasqal (direct cloud and QRMI) <pasqal-backend>` is documented under
+  :doc:`Neutral Atom QPUs <hardware/neutralatom>`.
