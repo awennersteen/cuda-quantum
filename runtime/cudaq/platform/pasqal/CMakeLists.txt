@@ -50,6 +50,14 @@ target_link_libraries(${LIBRARY_NAME}
     cudaq-platform-default
     nvqir)
 
+if(TARGET nvqir-dynamics)
+  target_sources(${LIBRARY_NAME}
+    PRIVATE ${CMAKE_SOURCE_DIR}/runtime/common/AnalogDynamicsEmulation.cpp)
+  target_link_libraries(${LIBRARY_NAME} PRIVATE nvqir-dynamics CUDA::cudart)
+  target_compile_definitions(${LIBRARY_NAME}
+    PRIVATE CUDAQ_PASQAL_ENABLE_DYNAMICS_EMULATION)
+endif()
+
 target_link_libraries(${SERVERHELPER_LIBRARY_NAME}
   PRIVATE
     fmt::fmt-header-only

@@ -284,6 +284,46 @@ Submitting via Pasqal Cloud (Direct)
 To see a complete example, take a look at :ref:`Pasqal examples <pasqal-examples>`.
 
 
+Local Emulation
+```````````````
+
+The ``pasqal`` target supports local emulation for Rydberg programs through
+CUDA-Q's dynamics simulator stack. This requires a CUDA-capable GPU and a build
+that includes the dynamics backend.
+
+.. tab:: Python
+
+        Set ``emulate=True`` when selecting the target:
+
+        .. code:: python
+
+            cudaq.set_target('pasqal', emulate=True)
+
+            result = cudaq.evolve(RydbergHamiltonian(atom_sites=register,
+                                                     amplitude=omega,
+                                                     phase=phi,
+                                                     delta_global=delta),
+                                  schedule=schedule,
+                                  shots_count=100)
+
+.. tab:: C++
+
+        Pass ``--emulate`` to ``nvq++``:
+
+        .. code:: bash
+
+            nvq++ --target pasqal --emulate src.cpp -o program
+
+        The program still uses the same ``cudaq::evolve`` call:
+
+        .. code:: cpp
+
+            auto result = cudaq::evolve(
+                cudaq::rydberg_hamiltonian(register_sites, omega, phi, delta),
+                schedule,
+                100);
+
+
 Submitting via QRMI
 ````````````````````
 
@@ -318,11 +358,6 @@ The job submission process is the same as for the ``pasqal`` target.
         .. code:: bash
 
             nvq++ --target pasqal --pasqal-machine qrmi src.cpp
-
-
-.. note:: 
-
-    Local emulation via ``emulate`` flag is not yet supported on the `pasqal` target.
 
 
 QuEra Computing
@@ -430,4 +465,6 @@ To see a complete example, take a look at :ref:`QuEra Computing examples <quera-
 
 .. note:: 
 
-    Local emulation via ``emulate`` flag is not yet supported on the `quera` target.
+    Local emulation via the ``emulate`` flag is not yet supported on the
+    ``quera`` target. QuEra uses backend-specific Rydberg parameters, so its
+    local emulation path must opt in separately from Pasqal.
