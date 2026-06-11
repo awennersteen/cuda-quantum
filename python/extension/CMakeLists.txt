@@ -87,6 +87,12 @@ else()
   )
 endif()
 
+set(_analog_dynamics_emulation_sources)
+if(TARGET nvqir-dynamics)
+  list(APPEND _analog_dynamics_emulation_sources
+    ../../runtime/common/AnalogDynamicsEmulation.cpp)
+endif()
+
 declare_mlir_python_extension(CUDAQuantumPythonSources.Extension
   MODULE_NAME _quakeDialects
   ADD_TO_PARENT CUDAQuantumPythonSources
@@ -139,6 +145,7 @@ declare_mlir_python_extension(CUDAQuantumPythonSources.Extension
     ../../runtime/cudaq/platform/orca/OrcaQPU.cpp
     ../../runtime/cudaq/platform/orca/OrcaRemoteRESTQPU.cpp
     ../../runtime/cudaq/platform/orca/OrcaServerHelper.cpp
+    ${_analog_dynamics_emulation_sources}
     ../../runtime/cudaq/platform/pasqal/PasqalRemoteRESTQPU.cpp
     ../../runtime/cudaq/platform/pasqal/PasqalServerHelper.cpp
     ../../runtime/cudaq/platform/quera/QuEraRemoteRESTQPU.cpp
@@ -179,6 +186,12 @@ target_link_libraries(CUDAQuantumPythonSources.Extension INTERFACE
     cudaq-em-photonics
     fmt::fmt-header-only
 )
+if(TARGET nvqir-dynamics)
+  target_link_libraries(CUDAQuantumPythonSources.Extension INTERFACE
+      nvqir-dynamics CUDA::cudart)
+  target_compile_definitions(CUDAQuantumPythonSources.Extension INTERFACE
+      CUDAQ_PASQAL_ENABLE_DYNAMICS_EMULATION)
+endif()
 
 ################################################################################
 # Common CAPI

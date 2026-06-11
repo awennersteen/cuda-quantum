@@ -159,9 +159,10 @@ This experiment is performed on ORCA's backends by the code below.
 Pasqal
 ==================================
 
-The following code illustrates how to run kernels on Pasqal's backends.
+The following code illustrates cloud submission to Pasqal's backends.
 For QRMI-routed Pasqal jobs, specify ``pasqal`` as the target; the ``machine``
-argument is supplied by QRMI at runtime.
+argument is supplied by QRMI at runtime. Local emulation examples are shown in
+:ref:`pasqal-backend`.
 
 .. tab:: Python
 
