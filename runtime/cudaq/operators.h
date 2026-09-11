@@ -1683,6 +1683,10 @@ public:
   /// @brief Get global detuning operator.
   const scalar_operator &get_delta_global() const;
 
+  /// @brief Get the local detuning envelope and per-site scales.
+  const std::optional<std::pair<scalar_operator, std::vector<double>>> &
+  get_delta_local() const;
+
 private:
   std::vector<coordinate> atom_sites;
   std::vector<int> atom_filling;

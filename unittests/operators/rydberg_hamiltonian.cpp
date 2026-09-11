@@ -126,11 +126,8 @@ TEST(AHSModelTest, SamplingSiteOrderShotsAndSeed) {
   auto counts = ahs::sampleStateVector(state, 37, 13);
   EXPECT_EQ(counts.count("100"), 37);
   EXPECT_EQ(counts.get_total_shots(), 37);
-  auto atoms =
-      ahs::sampleStateVector(state, 37, 13, ahs::ResultFormat::AtomState);
-  EXPECT_EQ(atoms.count("122"), 37);
-  EXPECT_EQ(atoms.count("111", "pre_sequence"), 37);
-  EXPECT_EQ(atoms.count("011", "post_sequence"), 37);
+  auto vacancies = ahs::sampleStateVector(state, 37, 13, {0, 1, 0, 1, 1});
+  EXPECT_EQ(vacancies.count("01000"), 37);
   state[1] = std::sqrt(0.3);
   state[6] = std::sqrt(0.7);
   auto first = ahs::sampleStateVector(state, 1000, 13);
@@ -142,20 +139,57 @@ TEST(AHSModelTest, SamplingSiteOrderShotsAndSeed) {
   EXPECT_EQ(ahs::sampleStateVector(state, 0, 13).get_total_shots(), 0);
 }
 
-TEST(AHSModelTest, UnsupportedFieldsRemainExplicit) {
-  auto program = makeProgram({{0., 0.}, {5e-6, 0.}});
+TEST(AHSModelTest, VacanciesAndLocalDetuning) {
+  auto program = makeProgram({{0., 0.}, {1e-6, 0.}, {6e-6, 0.}});
   program.setup.ahs_register.filling[1] = 0;
-  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
-               std::runtime_error);
-  program.setup.ahs_register.filling[1] = 1;
-  program.hamiltonian.localDetuning.emplace_back();
-  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
-               std::runtime_error);
-  program.hamiltonian.localDetuning.clear();
-  program.hamiltonian.drivingFields[0].phase.pattern =
+  program.hamiltonian.localDetuning.push_back(
+      {{ahs::TimeSeries({{0., 0.}, {4e6, 5e-7}, {0., 1e-6}}),
+        ahs::FieldPattern(std::vector<double>{0.25, 1., 0.75})}});
+  auto model = ahs::makeRydbergModel(program, ahs::fresnelCan);
+  EXPECT_EQ(model.dimensions.size(), 2);
+  EXPECT_EQ(model.times, (std::vector<double>{0., 5e-7, 1e-6}));
+  auto matrix = matrixAt(model, 5e-7);
+  EXPECT_NEAR(matrix(1, 1).real(), -1e6, 1e-8);
+  EXPECT_NEAR(matrix(2, 2).real(), -3e6, 1e-8);
+  EXPECT_NEAR(matrix(3, 3).real(),
+              ahs::fresnelCan.rydbergC6 / std::pow(6e-6, 6) - 4e6, 1e-7);
+  program.setup.ahs_register.filling = {0, 0, 0};
+  EXPECT_TRUE(
+      ahs::makeRydbergModel(program, ahs::fresnelCan).dimensions.empty());
+  EXPECT_EQ(ahs::sampleStateVector({1.}, 19, 7, {0, 0, 0}).count("000"), 19);
+}
+
+TEST(AHSModelTest, SpatialDrivingFieldsAdd) {
+  auto program = makeProgram({{0., 0.}, {6e-6, 0.}}, 2e6);
+  program.hamiltonian.drivingFields[0].amplitude.pattern =
       ahs::FieldPattern(std::vector<double>{1., 0.});
+  auto second = program.hamiltonian.drivingFields[0];
+  second.amplitude.pattern = ahs::FieldPattern(std::vector<double>{0., 0.5});
+  second.phase.time_series.values = {std::numbers::pi / 2,
+                                     std::numbers::pi / 2};
+  program.hamiltonian.drivingFields.push_back(second);
+  auto matrix = matrixAt(ahs::makeRydbergModel(program, ahs::fresnelCan));
+  EXPECT_NEAR(std::abs(matrix(1, 0) - 1e6), 0., 1e-8);
+  EXPECT_NEAR(std::abs(matrix(2, 0) - std::complex<double>(0., 5e5)), 0., 1e-8);
+}
+
+TEST(AHSModelTest, InvalidWaveformsAndPatterns) {
+  auto program = makeProgram({{0., 0.}, {6e-6, 0.}});
+  auto &field = program.hamiltonian.drivingFields[0].amplitude;
+  field.time_series.times = {0.};
   EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
-               std::runtime_error);
+               std::invalid_argument);
+  field.time_series.times = {0., 0.};
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::invalid_argument);
+  field.time_series.times = {0., 1e-6};
+  field.pattern = ahs::FieldPattern(std::vector<double>{1.});
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::invalid_argument);
+  field.pattern = ahs::FieldPattern("uniform");
+  program.setup.ahs_register.sites[1] = {0., 0.};
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::invalid_argument);
 }
 
 TEST(RydbergHamiltonianTest, ConstructorValidInputs) {
@@ -216,7 +250,7 @@ TEST(RydbergHamiltonianTest, InvalidAtomFillingSize) {
                                        delta_global, atom_filling));
 }
 
-TEST(RydbergHamiltonianTest, UnsupportedLocalDetuning) {
+TEST(RydbergHamiltonianTest, LocalDetuningAccessor) {
   std::vector<rydberg_hamiltonian::coordinate> atom_sites = {
       {0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}};
 
@@ -225,12 +259,15 @@ TEST(RydbergHamiltonianTest, UnsupportedLocalDetuning) {
   scalar_operator phase(0.0);
   scalar_operator delta_global(-0.5);
 
-  // Invalid delta_local
   auto delta_local =
       std::make_pair(scalar_operator(0.5), std::vector<double>{0.1, 0.2, 0.3});
 
-  EXPECT_ANY_THROW(rydberg_hamiltonian(atom_sites, amplitude, phase,
-                                       delta_global, {}, delta_local));
+  rydberg_hamiltonian hamiltonian(atom_sites, amplitude, phase, delta_global,
+                                  {}, delta_local);
+  ASSERT_TRUE(hamiltonian.get_delta_local());
+  EXPECT_EQ(hamiltonian.get_delta_local()->second, delta_local.second);
+  EXPECT_EQ(hamiltonian.get_delta_local()->first.evaluate({}),
+            std::complex<double>(0.5));
 }
 
 TEST(RydbergHamiltonianTest, Accessors) {

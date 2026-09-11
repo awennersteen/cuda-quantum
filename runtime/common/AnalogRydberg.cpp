@@ -51,6 +51,9 @@ std::vector<double> uniqueTimes(const cudaq::ahs::Program &program) {
     times.insert(times.end(), drive.detuning.time_series.times.begin(),
                  drive.detuning.time_series.times.end());
   }
+  for (const auto &local : program.hamiltonian.localDetuning)
+    times.insert(times.end(), local.magnitude.time_series.times.begin(),
+                 local.magnitude.time_series.times.end());
   std::sort(times.begin(), times.end());
   times.erase(std::unique(times.begin(), times.end()), times.end());
   return times;
@@ -62,11 +65,10 @@ double distance(const std::vector<double> &a, const std::vector<double> &b) {
   return std::sqrt(dx * dx + dy * dy);
 }
 
-void validateUniform(const cudaq::ahs::PhysicalField &field) {
-  if (field.pattern.patternStr != "uniform" ||
-      !field.pattern.patternVals.empty())
-    throw std::runtime_error(
-        "Analog emulation supports only uniform driving fields.");
+double siteScale(const cudaq::ahs::PhysicalField &field, std::size_t site) {
+  return field.pattern.patternStr == "uniform"
+             ? 1.0
+             : field.pattern.patternVals[site];
 }
 
 cudaq::scalar_operator
@@ -83,42 +85,60 @@ fieldCoefficient(const cudaq::ahs::TimeSeries &series,
 }
 
 cudaq::sum_op<cudaq::matrix_handler>
-rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6) {
-  const auto &drive = program.hamiltonian.drivingFields.front();
-  const auto xCoefficient = cudaq::scalar_operator(
-      [drive](const std::unordered_map<std::string, std::complex<double>>
-                  &parameters) {
-        const auto time = parameters.at("t").real();
-        const auto omega = interpolate(drive.amplitude.time_series, time);
-        const auto phase = interpolate(drive.phase.time_series, time, true);
-        return std::complex<double>(0.5 * omega * std::cos(phase), 0.0);
-      },
-      {{"t", "time"}});
-  const auto yCoefficient = cudaq::scalar_operator(
-      [drive](const std::unordered_map<std::string, std::complex<double>>
-                  &parameters) {
-        const auto time = parameters.at("t").real();
-        const auto omega = interpolate(drive.amplitude.time_series, time);
-        const auto phase = interpolate(drive.phase.time_series, time, true);
-        return std::complex<double>(0.5 * omega * std::sin(phase), 0.0);
-      },
-      {{"t", "time"}});
-  const auto detuningCoefficient = fieldCoefficient(
-      drive.detuning.time_series, [](double delta) { return -0.5 * delta; });
-
+rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6,
+                   const std::vector<std::size_t> &occupied) {
   auto hamiltonian = cudaq::spin_op::empty();
-  const auto &sites = program.setup.ahs_register.sites;
-  for (std::size_t i = 0; i < sites.size(); ++i) {
-    hamiltonian += xCoefficient * cudaq::spin_op::x(i);
-    hamiltonian += yCoefficient * cudaq::spin_op::y(i);
-    hamiltonian += detuningCoefficient *
-                   (cudaq::spin_op::identity(i) - cudaq::spin_op::z(i));
+  for (const auto &drive : program.hamiltonian.drivingFields) {
+    for (std::size_t i = 0; i < occupied.size(); ++i) {
+      const auto site = occupied[i];
+      const auto xCoefficient = cudaq::scalar_operator(
+          [drive,
+           site](const std::unordered_map<std::string, std::complex<double>>
+                     &parameters) {
+            const auto time = parameters.at("t").real();
+            const auto omega = siteScale(drive.amplitude, site) *
+                               interpolate(drive.amplitude.time_series, time);
+            const auto phase = siteScale(drive.phase, site) *
+                               interpolate(drive.phase.time_series, time, true);
+            return std::complex<double>(0.5 * omega * std::cos(phase), 0.0);
+          },
+          {{"t", "time"}});
+      const auto yCoefficient = cudaq::scalar_operator(
+          [drive,
+           site](const std::unordered_map<std::string, std::complex<double>>
+                     &parameters) {
+            const auto time = parameters.at("t").real();
+            const auto omega = siteScale(drive.amplitude, site) *
+                               interpolate(drive.amplitude.time_series, time);
+            const auto phase = siteScale(drive.phase, site) *
+                               interpolate(drive.phase.time_series, time, true);
+            return std::complex<double>(0.5 * omega * std::sin(phase), 0.0);
+          },
+          {{"t", "time"}});
+      const auto detuningCoefficient =
+          fieldCoefficient(drive.detuning.time_series,
+                           [scale = siteScale(drive.detuning, site)](
+                               double delta) { return -0.5 * scale * delta; });
+      hamiltonian += xCoefficient * cudaq::spin_op::x(i);
+      hamiltonian += yCoefficient * cudaq::spin_op::y(i);
+      hamiltonian += detuningCoefficient *
+                     (cudaq::spin_op::identity(i) - cudaq::spin_op::z(i));
+    }
   }
+  for (const auto &local : program.hamiltonian.localDetuning)
+    for (std::size_t i = 0; i < occupied.size(); ++i)
+      hamiltonian +=
+          fieldCoefficient(local.magnitude.time_series,
+                           [scale = siteScale(local.magnitude, occupied[i])](
+                               double delta) { return -0.5 * scale * delta; }) *
+          (cudaq::spin_op::identity(i) - cudaq::spin_op::z(i));
 
-  for (std::size_t i = 0; i < sites.size(); ++i) {
-    for (std::size_t j = i + 1; j < sites.size(); ++j) {
+  const auto &sites = program.setup.ahs_register.sites;
+  for (std::size_t i = 0; i < occupied.size(); ++i) {
+    for (std::size_t j = i + 1; j < occupied.size(); ++j) {
       const auto interaction =
-          0.25 * rydbergC6 / std::pow(distance(sites[i], sites[j]), 6);
+          0.25 * rydbergC6 /
+          std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6);
       hamiltonian +=
           interaction *
           (cudaq::spin_op::identity(i) * cudaq::spin_op::identity(j) -
@@ -131,20 +151,52 @@ rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6) {
 }
 
 void validateProgram(const cudaq::ahs::Program &program) {
-  if (program.hamiltonian.drivingFields.size() != 1)
-    throw std::runtime_error(
-        "Analog emulation supports one uniform driving field.");
-  if (!program.hamiltonian.localDetuning.empty())
-    throw std::runtime_error(
-        "Analog emulation does not support local detuning.");
-  for (auto filled : program.setup.ahs_register.filling)
-    if (filled != 1)
-      throw std::runtime_error(
-          "Analog emulation does not support empty trap sites.");
-  const auto &drive = program.hamiltonian.drivingFields.front();
-  validateUniform(drive.amplitude);
-  validateUniform(drive.phase);
-  validateUniform(drive.detuning);
+  const auto &atoms = program.setup.ahs_register;
+  if (atoms.sites.size() != atoms.filling.size())
+    throw std::invalid_argument(
+        "AHS sites and filling must have equal lengths.");
+  for (std::size_t i = 0; i < atoms.sites.size(); ++i) {
+    if (atoms.sites[i].size() != 2 || !std::isfinite(atoms.sites[i][0]) ||
+        !std::isfinite(atoms.sites[i][1]))
+      throw std::invalid_argument(
+          "AHS sites must contain two finite coordinates.");
+    if (atoms.filling[i] != 0 && atoms.filling[i] != 1)
+      throw std::invalid_argument("AHS filling must contain only 0 or 1.");
+    for (std::size_t j = 0; j < i; ++j)
+      if (atoms.filling[i] && atoms.filling[j] &&
+          atoms.sites[i] == atoms.sites[j])
+        throw std::invalid_argument(
+            "Occupied AHS sites must have distinct coordinates.");
+  }
+  auto validateField = [&atoms](const cudaq::ahs::PhysicalField &field) {
+    const auto &series = field.time_series;
+    if (series.times.size() != series.values.size())
+      throw std::invalid_argument(
+          "AHS times and values must have equal lengths.");
+    for (std::size_t i = 0; i < series.times.size(); ++i)
+      if (!std::isfinite(series.times[i]) || !std::isfinite(series.values[i]) ||
+          series.times[i] < 0.0 ||
+          (i && series.times[i] <= series.times[i - 1]))
+        throw std::invalid_argument("AHS waveforms require finite values and "
+                                    "strictly increasing nonnegative times.");
+    const auto &pattern = field.pattern;
+    if (pattern.patternStr != "uniform" &&
+        (!pattern.patternStr.empty() ||
+         pattern.patternVals.size() != atoms.sites.size()))
+      throw std::invalid_argument(
+          "AHS patterns must be uniform or have one scale per trap site.");
+    for (auto scale : pattern.patternVals)
+      if (!std::isfinite(scale) || scale < 0.0 || scale > 1.0)
+        throw std::invalid_argument(
+            "AHS spatial scales must be between 0 and 1.");
+  };
+  for (const auto &drive : program.hamiltonian.drivingFields) {
+    validateField(drive.amplitude);
+    validateField(drive.phase);
+    validateField(drive.detuning);
+  }
+  for (const auto &local : program.hamiltonian.localDetuning)
+    validateField(local.magnitude);
 }
 
 } // namespace
@@ -152,8 +204,9 @@ void validateProgram(const cudaq::ahs::Program &program) {
 sample_result
 ahs::sampleStateVector(const std::vector<std::complex<double>> &state,
                        std::size_t shots, std::size_t seed,
-                       ResultFormat format) {
-  const std::size_t numSites = std::bit_width(state.size()) - 1;
+                       const std::vector<int> &filling) {
+  const std::size_t numSites =
+      filling.empty() ? std::bit_width(state.size()) - 1 : filling.size();
   std::vector<double> probabilities;
   probabilities.reserve(state.size());
   for (auto amplitude : state)
@@ -165,29 +218,13 @@ ahs::sampleStateVector(const std::vector<std::complex<double>> &state,
   for (std::size_t shot = 0; shot < shots; ++shot) {
     const auto basis = distribution(generator);
     std::string bits(numSites, '0');
+    std::size_t atom = 0;
     for (std::size_t site = 0; site < numSites; ++site)
-      bits[site] = ((basis >> site) & 1) ? '1' : '0';
+      if (filling.empty() || filling[site])
+        bits[site] = ((basis >> atom++) & 1) ? '1' : '0';
     counts[bits]++;
   }
-  if (format == ResultFormat::Binary)
-    return sample_result(ExecutionResult(counts));
-
-  // Native AHS readout: 0=empty, 1=Rydberg, 2=ground, with pre/post registers.
-  CountsDictionary atomStates, preSequence, postSequence;
-  for (const auto &[bits, count] : counts) {
-    auto atoms = bits;
-    auto post = bits;
-    for (std::size_t site = 0; site < numSites; ++site) {
-      atoms[site] = bits[site] == '1' ? '1' : '2';
-      post[site] = bits[site] == '1' ? '0' : '1';
-    }
-    atomStates[atoms] += count;
-    postSequence[post] += count;
-    preSequence[std::string(numSites, '1')] += count;
-  }
-  return sample_result(std::vector<ExecutionResult>{
-      ExecutionResult(atomStates), ExecutionResult(preSequence, "pre_sequence"),
-      ExecutionResult(postSequence, "post_sequence")});
+  return sample_result(ExecutionResult(counts));
 }
 
 ahs::DeviceSpecification ahs::deviceSpecification(const std::string &name) {
@@ -205,8 +242,12 @@ ahs::RydbergModel ahs::makeRydbergModel(const Program &program,
   validateProgram(program);
   dimension_map dimensions;
   const auto &sites = program.setup.ahs_register.sites;
+  std::vector<std::size_t> occupied;
   for (std::size_t i = 0; i < sites.size(); ++i)
-    dimensions[i] = 2;
+    if (program.setup.ahs_register.filling[i]) {
+      dimensions[occupied.size()] = 2;
+      occupied.push_back(i);
+    }
 
   const auto maxAbs = [](const TimeSeries &series) {
     double value = 0.0;
@@ -214,19 +255,27 @@ ahs::RydbergModel ahs::makeRydbergModel(const Program &program,
       value = std::max(value, std::abs(v));
     return value;
   };
-  const auto &drive = program.hamiltonian.drivingFields.front();
-  double bound = sites.size() * (0.5 * maxAbs(drive.amplitude.time_series) +
-                                 maxAbs(drive.detuning.time_series));
-  for (std::size_t i = 0; i < sites.size(); ++i)
-    for (std::size_t j = i + 1; j < sites.size(); ++j)
+  double bound = 0.0;
+  for (const auto &drive : program.hamiltonian.drivingFields)
+    for (auto site : occupied)
+      bound +=
+          0.5 * siteScale(drive.amplitude, site) *
+              maxAbs(drive.amplitude.time_series) +
+          siteScale(drive.detuning, site) * maxAbs(drive.detuning.time_series);
+  for (const auto &local : program.hamiltonian.localDetuning)
+    for (auto site : occupied)
+      bound += siteScale(local.magnitude, site) *
+               maxAbs(local.magnitude.time_series);
+  for (std::size_t i = 0; i < occupied.size(); ++i)
+    for (std::size_t j = i + 1; j < occupied.size(); ++j)
       bound += std::abs(device.rydbergC6) /
-               std::pow(distance(sites[i], sites[j]), 6);
+               std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6);
 
   // Limit the RK4 step by the Hamiltonian norm as well as the waveform scale.
   // A fixed 1 ns step is unstable for tightly spaced atoms.
   const auto maxStep = bound > 0.0 ? std::min(1e-9, 0.1 / bound) : 1e-9;
-  return {rydbergHamiltonian(program, device.rydbergC6), std::move(dimensions),
-          uniqueTimes(program), maxStep};
+  return {rydbergHamiltonian(program, device.rydbergC6, occupied),
+          std::move(dimensions), uniqueTimes(program), maxStep};
 }
 
 } // namespace cudaq

@@ -185,8 +185,11 @@ def test_emulate_phase_sequence():
 
 
 @skipIfPasqalEmulationUnavailable
-def test_emulate_command_line():
+@pytest.mark.parametrize("target", ["pasqal", "quera"])
+def test_emulate_command_line(target):
     """Launch an analog evolution using the command-line emulation flag."""
+    if not cudaq.has_target(target):
+        pytest.skip(f"Could not find {target} in installation")
     code = """
 import cudaq
 from cudaq.dynamics import Schedule
@@ -194,17 +197,35 @@ from cudaq.operators import RydbergHamiltonian, ScalarOperator
 h = RydbergHamiltonian([(0., 0.)], ScalarOperator.const(0.),
                       ScalarOperator.const(0.), ScalarOperator.const(0.))
 result = cudaq.evolve(h, schedule=Schedule([0., 1e-8], ["t"]), shots_count=19)
-assert result["0"] == 19
+assert result["2" if cudaq.get_target().name == "quera" else "0"] == 19
 """
-    subprocess.run(
-        [sys.executable, "-c", code, "-target", "pasqal", "--emulate"],
-        env={
-            **os.environ, "DISABLE_REMOTE_SEND": "1"
-        },
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60)
+    subprocess.run([sys.executable, "-c", code, "-target", target, "--emulate"],
+                   env={
+                       **os.environ, "DISABLE_REMOTE_SEND": "1"
+                   },
+                   check=True,
+                   capture_output=True,
+                   text=True,
+                   timeout=60)
+
+
+@skipIfPasqalEmulationUnavailable
+def test_terminal_phase_does_not_evolve():
+    """Ignore a phase change occurring only at the final waveform point."""
+    cudaq.set_target("pasqal", emulate=True)
+    results = []
+    for final_phase in [0., np.pi / 2]:
+        cudaq.set_random_seed(41)
+        h = RydbergHamiltonian(
+            [(0., 0.)], ScalarOperator.const(4e6),
+            ScalarOperator(lambda t: final_phase if t.real >= 4e-7 else 0.),
+            ScalarOperator.const(2e6))
+        results.append(
+            dict(
+                cudaq.evolve(h,
+                             schedule=Schedule([0., 4e-7], ["t"]),
+                             shots_count=20000).items()))
+    assert results[0] == results[1]
 
 
 # leave for gdb debugging

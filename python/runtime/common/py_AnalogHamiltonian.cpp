@@ -52,8 +52,9 @@ void bindAnalogHamiltonian(nanobind::module_ &mod) {
       .def_rw("times", &cudaq::ahs::TimeSeries::times);
 
   nanobind::class_<cudaq::ahs::FieldPattern>(mod, "FieldPattern")
-      /// NOTE: Other constructors not required from Python interface
       .def(nanobind::init<>())
+      .def(nanobind::init<const std::string &>())
+      .def(nanobind::init<const std::vector<double> &>())
       .def_rw("patternStr", &cudaq::ahs::FieldPattern::patternStr)
       .def_rw("patternVals", &cudaq::ahs::FieldPattern::patternVals);
 

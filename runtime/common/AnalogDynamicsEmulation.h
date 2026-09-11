@@ -17,7 +17,6 @@
 namespace cudaq {
 
 namespace ahs {
-enum class ResultFormat { Binary, AtomState };
 /// Hamiltonian in rad/s, with time parameter `t` in seconds and site 0 at the
 /// least significant tensor index, following CUDA-Q's operator convention.
 /// Use |g> = |0>, |r> = |1>, and Omega/2 (cos(phi) X + sin(phi) Y).
@@ -33,17 +32,17 @@ RydbergModel makeRydbergModel(const Program &program,
                               const DeviceSpecification &device);
 
 /// Sample a qubit state vector with site 0 in the least significant index.
-/// Output strings list sites in register order. Binary uses ground=0,
-/// Rydberg=1; AtomState uses ground=2, Rydberg=1 and includes pre/post readout
-/// registers.
+/// Output strings list trap sites in register order: ground/vacant=0,
+/// Rydberg=1. The state vector contains only occupied sites when a filling is
+/// supplied.
 sample_result sampleStateVector(const std::vector<std::complex<double>> &state,
                                 std::size_t shots, std::size_t seed,
-                                ResultFormat format = ResultFormat::Binary);
+                                const std::vector<int> &filling = {});
 } // namespace ahs
 
 cudaq::sample_result
-emulateRydbergDynamics(const std::string &programString, std::size_t shots,
-                       const ahs::DeviceSpecification &device, std::size_t seed,
-                       ahs::ResultFormat format = ahs::ResultFormat::Binary);
+emulateRydbergDynamics(const ahs::Program &program, std::size_t shots,
+                       const ahs::DeviceSpecification &device,
+                       std::size_t seed);
 
 } // namespace cudaq

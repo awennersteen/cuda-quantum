@@ -140,11 +140,13 @@ def _launch_analog_hamiltonian_kernel(target_name: str,
     amp_ts = []
     ph_ts = []
     dg_ts = []
+    dl_ts = []
+    fields = [(amp_ts, hamiltonian.amplitude), (ph_ts, hamiltonian.phase),
+              (dg_ts, hamiltonian.delta_global)]
+    if hamiltonian.delta_local is not None:
+        fields.append((dl_ts, hamiltonian.delta_local[0]))
     for t in tlist:
-        for ts, op in zip([amp_ts, ph_ts, dg_ts], [
-                hamiltonian.amplitude, hamiltonian.phase,
-                hamiltonian.delta_global
-        ]):
+        for ts, op in fields:
             if op is not None:
                 param_names = op.parameters.keys()
                 if len(param_names) == 0:
@@ -182,6 +184,12 @@ def _launch_analog_hamiltonian_kernel(target_name: str,
     program.setup.ahs_register = atoms
     program.hamiltonian.drivingFields = [drive]
     program.hamiltonian.localDetuning = []
+    if hamiltonian.delta_local is not None:
+        local = cudaq_runtime.ahs.LocalDetuning()
+        local.magnitude.time_series = cudaq_runtime.ahs.TimeSeries(dl_ts)
+        local.magnitude.pattern = cudaq_runtime.ahs.FieldPattern(
+            list(hamiltonian.delta_local[1]))
+        program.hamiltonian.localDetuning = [local]
 
     funcName = '{}{}_{}'.format(
         ahkPrefix, target_name, ''.join(

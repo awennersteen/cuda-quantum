@@ -15,9 +15,12 @@ namespace cudaq {
 /// @brief The QuEraRemoteRESTQPU is a subtype of QPU that enables the
 /// execution of Analog Hamiltonian Programs via a REST Client.
 class QuEraRemoteRESTQPU : public AnalogRemoteRESTQPU {
+  static sample_result formatEmulatedResult(const sample_result &result,
+                                            const ahs::AtomArrangement &atoms);
+
 public:
   QuEraRemoteRESTQPU()
-      : AnalogRemoteRESTQPU(ahs::aquila, ahs::ResultFormat::AtomState) {}
+      : AnalogRemoteRESTQPU(ahs::aquila, formatEmulatedResult) {}
   QuEraRemoteRESTQPU(QuEraRemoteRESTQPU &&) = delete;
   ~QuEraRemoteRESTQPU() override;
 };

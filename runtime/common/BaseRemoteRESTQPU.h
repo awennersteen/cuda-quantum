@@ -81,6 +81,10 @@ protected:
   /// @brief The target configuration
   cudaq::config::TargetConfig targetConfig;
 
+  /// Local backends can omit cloud resources when their launch path is
+  /// independent.
+  virtual bool requiresRemoteBackend() const { return true; }
+
 public:
   // This class overrides `launchKernel(dem_policy)` and
   // `launchKernel(estimate_policy)` (local analyses, shared by all remote
@@ -217,8 +221,9 @@ public:
     // Set the qpu name
     qpuName = mutableBackend;
     // Create the ServerHelper for this QPU and give it the backend config
-    detail::initServerHelperAndExecutor(qpuName, backendConfig, targetConfig,
-                                        serverHelper, executor);
+    if (requiresRemoteBackend())
+      detail::initServerHelperAndExecutor(qpuName, backendConfig, targetConfig,
+                                          serverHelper, executor);
   }
 
   CompileTarget

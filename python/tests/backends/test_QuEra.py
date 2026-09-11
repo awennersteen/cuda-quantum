@@ -21,9 +21,8 @@ pytestmark = pytest.mark.skipif(not cudaq.has_target("quera"),
                                 reason="Could not find `quera` in installation")
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def set_up_target():
-    cudaq.set_target("quera")
     yield "Running the tests."
     cudaq.reset_target()
 
@@ -34,6 +33,7 @@ def test_ahs_hello():
     Test based on
     https://docs.aws.amazon.com/braket/latest/developerguide/braket-get-started-hello-ahs.html
     '''
+    cudaq.set_target("quera")
     a = 5.7e-6
     register = []
     register.append(tuple(np.array([0.5, 0.5 + 1 / np.sqrt(2)]) * a))
@@ -74,7 +74,11 @@ def test_ahs_hello():
     not (cudaq.has_target("dynamics") and cudaq.num_available_gpus() > 0),
     reason="AHS emulation requires dynamics and a CUDA GPU")
 @pytest.mark.parametrize("is_async", [False, True])
-def test_aquila_emulation_readout(is_async, monkeypatch):
+@pytest.mark.parametrize("filling, expected, pre", [([1, 1], "22", "11"),
+                                                    ([0, 1], "02", "01"),
+                                                    ([0, 0], "00", "00")])
+def test_aquila_emulation_readout(is_async, filling, expected, pre,
+                                  monkeypatch):
     """Preserve Aquila's native atom-state and pre/post readout registers."""
     monkeypatch.setenv("DISABLE_REMOTE_SEND", "1")
     cudaq.set_target("quera", emulate=True)
@@ -82,13 +86,14 @@ def test_aquila_emulation_readout(is_async, monkeypatch):
     result = evolve(RydbergHamiltonian(atom_sites=[(0., 0.), (5.7e-6, 0.)],
                                        amplitude=ScalarOperator.const(0.),
                                        phase=ScalarOperator.const(0.),
-                                       delta_global=ScalarOperator.const(0.)),
+                                       delta_global=ScalarOperator.const(0.),
+                                       atom_filling=filling),
                     schedule=Schedule([0., 1e-8], ["t"]),
                     shots_count=23)
     result = result.get() if is_async else result
-    assert result["22"] == 23
-    assert result.get_register_counts("pre_sequence")["11"] == 23
-    assert result.get_register_counts("post_sequence")["11"] == 23
+    assert result[expected] == 23
+    assert result.get_register_counts("pre_sequence")[pre] == 23
+    assert result.get_register_counts("post_sequence")[pre] == 23
 
 
 # leave for gdb debugging

@@ -78,11 +78,6 @@ class RydbergHamiltonian:
             raise ValueError(
                 "Size of `atom_sites` and `atom_filling` must be equal")
 
-        if delta_local is not None:
-            raise NotImplementedError(
-                "Local detuning is experimental feature not yet supported in CUDA-Q"
-            )
-
         self.atom_sites = atom_sites
         self.atom_filling = atom_filling
         self.amplitude = amplitude

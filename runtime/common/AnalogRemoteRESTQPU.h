@@ -11,6 +11,9 @@
 #include "common/AnalogDynamicsEmulation.h"
 #include "common/BaseRemoteRESTQPU.h"
 #include "cudaq/platform/qpu_utils.h"
+#ifdef CUDAQ_ENABLE_AHS_EMULATION
+#include "nlohmann/json.hpp"
+#endif
 #include <future>
 
 namespace cudaq {
@@ -20,13 +23,16 @@ namespace cudaq {
 class AnalogRemoteRESTQPU : public BaseRemoteRESTQPU {
 protected:
   ahs::DeviceSpecification device;
-  ahs::ResultFormat resultFormat;
+  using ResultAdapter = sample_result (*)(const sample_result &,
+                                          const ahs::AtomArrangement &);
+  ResultAdapter resultAdapter;
+
+  bool requiresRemoteBackend() const override { return !emulate; }
 
 public:
-  explicit AnalogRemoteRESTQPU(
-      ahs::DeviceSpecification device,
-      ahs::ResultFormat format = ahs::ResultFormat::Binary)
-      : device(device), resultFormat(format) {}
+  explicit AnalogRemoteRESTQPU(ahs::DeviceSpecification device,
+                               ResultAdapter adapter = nullptr)
+      : device(device), resultAdapter(adapter) {}
 
   /// @brief Check if this is a remote target
   virtual bool isRemote() override { return !emulate; }
@@ -69,11 +75,14 @@ public:
       if (auto it = backendConfig.find("rydberg_c6"); it != backendConfig.end())
         specification.rydbergC6 = std::stod(it->second);
       auto seed = cudaq::get_random_seed();
+      auto program = nlohmann::json::parse(strArgs).get<ahs::Program>();
       return detail::future(std::async(
-          std::launch::async, [specification, format = resultFormat, strArgs,
+          std::launch::async, [specification, adapter = resultAdapter, program,
                                shots = policy.options.shots, seed]() {
-            return emulateRydbergDynamics(strArgs, shots, specification, seed,
-                                          format);
+            auto result =
+                emulateRydbergDynamics(program, shots, specification, seed);
+            return adapter ? adapter(result, program.setup.ahs_register)
+                           : result;
           }));
 #else
       throw std::runtime_error(
