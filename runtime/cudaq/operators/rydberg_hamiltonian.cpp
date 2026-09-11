@@ -27,11 +27,6 @@ rydberg_hamiltonian::rydberg_hamiltonian(
   } else {
     this->atom_filling = atom_filling;
   }
-
-  if (delta_local.has_value()) {
-    throw std::runtime_error(
-        "Local detuning is an experimental feature not yet supported.");
-  }
 }
 
 const std::vector<rydberg_hamiltonian::coordinate> &
@@ -51,5 +46,10 @@ const scalar_operator &rydberg_hamiltonian::get_phase() const { return phase; }
 
 const scalar_operator &rydberg_hamiltonian::get_delta_global() const {
   return delta_global;
+}
+
+const std::optional<std::pair<scalar_operator, std::vector<double>>> &
+rydberg_hamiltonian::get_delta_local() const {
+  return delta_local;
 }
 } // namespace cudaq

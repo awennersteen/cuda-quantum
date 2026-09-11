@@ -315,9 +315,11 @@ evolveSingle(const cudaq::rydberg_hamiltonian &hamiltonian,
   auto amp = hamiltonian.get_amplitude();
   auto ph = hamiltonian.get_phase();
   auto dg = hamiltonian.get_delta_global();
+  const auto &dl = hamiltonian.get_delta_local();
   std::vector<std::pair<double, double>> amp_ts;
   std::vector<std::pair<double, double>> ph_ts;
   std::vector<std::pair<double, double>> dg_ts;
+  std::vector<std::pair<double, double>> dl_ts;
   for (const auto &step : schedule) {
     auto amp_res = amp.evaluate({{"t", step}});
     amp_ts.push_back(std::make_pair(amp_res.real(), step.real()));
@@ -327,6 +329,8 @@ evolveSingle(const cudaq::rydberg_hamiltonian &hamiltonian,
 
     auto dg_res = dg.evaluate({{"t", step}});
     dg_ts.push_back(std::make_pair(dg_res.real(), step.real()));
+    if (dl)
+      dl_ts.emplace_back(dl->first.evaluate({{"t", step}}).real(), step.real());
   }
 
   auto atoms = cudaq::ahs::AtomArrangement();
@@ -352,6 +356,10 @@ evolveSingle(const cudaq::rydberg_hamiltonian &hamiltonian,
   program.setup.ahs_register = atoms;
   program.hamiltonian.drivingFields = {drive};
   program.hamiltonian.localDetuning = {};
+  if (dl)
+    program.hamiltonian.localDetuning.push_back(
+        {{cudaq::ahs::TimeSeries(dl_ts),
+          cudaq::ahs::FieldPattern(dl->second)}});
 
   std::ostringstream programName;
   programName << "__analog_hamiltonian_kernel__" << []() {

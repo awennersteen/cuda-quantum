@@ -284,6 +284,39 @@ Submitting via Pasqal Cloud (Direct)
 To see a complete example, take a look at :ref:`Pasqal examples <pasqal-examples>`.
 
 
+Local Emulation
+```````````````
+
+The ``pasqal`` target supports local emulation for Rydberg programs through
+CUDA-Q's dynamics simulator stack. This requires a CUDA-capable GPU and a build
+that includes the dynamics backend. No cloud credentials are needed. Use the
+same ``evolve`` or ``evolve_async`` call as for remote execution.
+
+This is ideal coherent emulation, not a calibrated hardware noise model.
+Coordinates are in meters, times in seconds, amplitude and detuning in rad/s,
+and phase in radians. Amplitude and detuning are linearly interpolated between
+schedule points; phase is held constant until the next point. The default
+``C6/hbar`` is ``8.6572302e-25`` rad m^6/s, for the FRESNEL_CAN1 level-60
+Rydberg state. The ``rydberg_c6`` target argument overrides this coefficient
+for local emulation only. Hardware limits are not enforced.
+
+.. tab:: Python
+
+        Set ``emulate=True`` when selecting the target:
+
+        .. code:: python
+
+            cudaq.set_target('pasqal', emulate=True)
+
+.. tab:: C++
+
+        Pass ``--emulate`` to ``nvq++``:
+
+        .. code:: bash
+
+            nvq++ --target pasqal --emulate src.cpp -o program
+
+
 Submitting via QRMI
 ````````````````````
 
@@ -318,11 +351,6 @@ The job submission process is the same as for the ``pasqal`` target.
         .. code:: bash
 
             nvq++ --target pasqal --pasqal-machine qrmi src.cpp
-
-
-.. note:: 
-
-    Local emulation via ``emulate`` flag is not yet supported on the `pasqal` target.
 
 
 QuEra Computing
@@ -430,4 +458,8 @@ To see a complete example, take a look at :ref:`QuEra Computing examples <quera-
 
 .. note:: 
 
-    Local emulation via ``emulate`` flag is not yet supported on the `quera` target.
+    Local emulation is supported with ``cudaq.set_target('quera', emulate=True)``
+    or ``nvq++ --target quera --emulate``. It uses the same ideal AHS simulator
+    and GPU requirements as Pasqal, with Aquila's ``C6/hbar`` of ``5.42e-24``
+    rad m^6/s. The existing QuEra readout format is preserved: vacant=0,
+    Rydberg=1, ground=2, with ``pre_sequence`` and ``post_sequence`` registers.

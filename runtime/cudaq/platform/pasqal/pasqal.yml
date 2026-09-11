@@ -23,6 +23,11 @@ config:
   gen-target-backend: true
 
 target-arguments:
+  - key: rydberg_c6
+    required: false
+    type: string
+    platform-arg: rydberg_c6
+    help-string: "Override the emulation C6/hbar coefficient in rad m^6 / s."
   - key: machine
     required: false
     type: string

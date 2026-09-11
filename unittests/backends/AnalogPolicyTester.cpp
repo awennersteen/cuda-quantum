@@ -11,12 +11,38 @@
 
 namespace {
 
+class LocalAhsQpu : public cudaq::AnalogRemoteRESTQPU {
+public:
+  LocalAhsQpu() : AnalogRemoteRESTQPU(cudaq::ahs::fresnelCan) {
+    emulate = true;
+  }
+};
+
 // The launch path itself is covered by `targettests/analog`, which exercises it
 // from an `nvq++`-built binary with a complete runtime.
 TEST(AnalogPolicyTester, CompileTargetPreservesSourceModule) {
-  cudaq::AnalogRemoteRESTQPU qpu;
+  cudaq::AnalogRemoteRESTQPU qpu(cudaq::ahs::fresnelCan);
   auto target = qpu.getCompileTarget();
   EXPECT_FALSE(target.overrideAOTCompilation);
+}
+
+TEST(AnalogPolicyTester, MissingDynamicsReportsBuildRequirement) {
+  LocalAhsQpu qpu;
+  EXPECT_TRUE(qpu.isEmulated());
+  EXPECT_FALSE(qpu.isRemote());
+  std::string payload = cudaq::ahs::toJsonString(cudaq::ahs::Program{});
+  cudaq::KernelArgs args(
+      cudaq::KernelArgs::PackedArgs{payload.data(), payload.size(), 0});
+  cudaq::CompiledModule module(
+      cudaq::SourceModule("__analog_hamiltonian_kernel__no_dynamics"));
+  try {
+    qpu.launchKernel(cudaq::sample_policy{}, module, args);
+    FAIL() << "An AHS backend without an emulator must reject emulation.";
+  } catch (const std::runtime_error &error) {
+    EXPECT_STREQ(
+        error.what(),
+        "AHS emulation requires a build with the CUDA-Q dynamics backend.");
+  }
 }
 
 } // namespace

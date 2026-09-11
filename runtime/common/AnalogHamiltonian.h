@@ -22,8 +22,7 @@ using json = nlohmann::json;
 
 /// @brief Convert a double to a JSON string.
 inline std::string doubleAsJsonString(double d) {
-  std::string s = cudaq_fmt::format("{:.8f}", d);
-  return s;
+  return cudaq_fmt::format("{}", d);
 }
 
 /// @brief Convert a vector of strings to a vector of doubles.
@@ -170,6 +169,9 @@ void from_json(const json &j, Program &p);
 
 /// @brief Serialize an Analog Hamiltonian Simulation program to a JSON string.
 std::string toJsonString(const Program &program);
+
+/// @brief Deserialize an Analog Hamiltonian Simulation program.
+Program fromJsonString(const std::string &program);
 
 ///////////////////////////////////////////////////////////////////////////////
 // The following classes represent the result of Analog Hamiltonian Simulation

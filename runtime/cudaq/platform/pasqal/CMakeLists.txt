@@ -50,6 +50,8 @@ target_link_libraries(${LIBRARY_NAME}
     cudaq-platform-default
     nvqir)
 
+add_ahs_emulation(${LIBRARY_NAME})
+
 target_link_libraries(${SERVERHELPER_LIBRARY_NAME}
   PRIVATE
     fmt::fmt-header-only

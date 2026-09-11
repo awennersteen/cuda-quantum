@@ -25,8 +25,6 @@ from .helpers import InitialState, InitialStateArgT, IntermediateResultSave
 from .integrator import BaseIntegrator
 from .schedule import Schedule
 
-analog_targets = ["pasqal", "quera"]
-
 
 def _taylor_series_expm(op_matrix: NDArray[numpy.complexfloating],
                         order: int = 20) -> NDArray[numpy.complexfloating]:
@@ -142,11 +140,13 @@ def _launch_analog_hamiltonian_kernel(target_name: str,
     amp_ts = []
     ph_ts = []
     dg_ts = []
+    dl_ts = []
+    fields = [(amp_ts, hamiltonian.amplitude), (ph_ts, hamiltonian.phase),
+              (dg_ts, hamiltonian.delta_global)]
+    if hamiltonian.delta_local is not None:
+        fields.append((dl_ts, hamiltonian.delta_local[0]))
     for t in tlist:
-        for ts, op in zip([amp_ts, ph_ts, dg_ts], [
-                hamiltonian.amplitude, hamiltonian.phase,
-                hamiltonian.delta_global
-        ]):
+        for ts, op in fields:
             if op is not None:
                 param_names = op.parameters.keys()
                 if len(param_names) == 0:
@@ -184,6 +184,12 @@ def _launch_analog_hamiltonian_kernel(target_name: str,
     program.setup.ahs_register = atoms
     program.hamiltonian.drivingFields = [drive]
     program.hamiltonian.localDetuning = []
+    if hamiltonian.delta_local is not None:
+        local = cudaq_runtime.ahs.LocalDetuning()
+        local.magnitude.time_series = cudaq_runtime.ahs.TimeSeries(dl_ts)
+        local.magnitude.pattern = cudaq_runtime.ahs.FieldPattern(
+            list(hamiltonian.delta_local[1]))
+        program.hamiltonian.localDetuning = [local]
 
     funcName = '{}{}_{}'.format(
         ahkPrefix, target_name, ''.join(
@@ -263,7 +269,7 @@ def evolve_single(
             f"Invalid argument `store_intermediate_results` for target {cudaq_runtime.get_target().name}."
         )
 
-    if target_name in analog_targets:
+    if isinstance(hamiltonian, RydbergHamiltonian):
         ## TODO: Convert result from `sample_result` to `evolve_result`
         return _launch_analog_hamiltonian_kernel(target_name, hamiltonian,
                                                  schedule, shots_count)
@@ -437,11 +443,7 @@ def evolve(
             DeprecationWarning)
         store_intermediate_results = IntermediateResultSave.ALL if store_intermediate_results else IntermediateResultSave.NONE
 
-    if target_name in analog_targets:
-        if not isinstance(hamiltonian, RydbergHamiltonian):
-            raise ValueError(
-                f"Invalid argument `hamiltonian` for target {target_name}. Must be `RydbergHamiltonian` operator."
-            )
+    if isinstance(hamiltonian, RydbergHamiltonian):
         if bool(dimensions):
             raise ValueError(
                 f"Unexpected argument `dimensions` for target {target_name}.")
@@ -580,7 +582,7 @@ def evolve_single_async(
             collapse_operators, observables, store_intermediate_results,
             integrator))
 
-    if target_name in analog_targets:
+    if isinstance(hamiltonian, RydbergHamiltonian):
         return _launch_analog_hamiltonian_kernel(target_name, hamiltonian,
                                                  schedule, shots_count, True)
 
@@ -731,11 +733,7 @@ def evolve_async(
             DeprecationWarning)
         store_intermediate_results = IntermediateResultSave.ALL if store_intermediate_results else IntermediateResultSave.NONE
 
-    if target_name in analog_targets:
-        if not isinstance(hamiltonian, RydbergHamiltonian):
-            raise ValueError(
-                f"Invalid argument `hamiltonian` for target {target_name}. Must be `RydbergHamiltonian` operator."
-            )
+    if isinstance(hamiltonian, RydbergHamiltonian):
         if bool(dimensions):
             raise ValueError(
                 f"Unexpected argument `dimensions` for target {target_name}.")

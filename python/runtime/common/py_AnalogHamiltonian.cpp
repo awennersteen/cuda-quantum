@@ -7,6 +7,7 @@
  ******************************************************************************/
 
 #include "py_AnalogHamiltonian.h"
+#include "common/AnalogDynamicsEmulation.h"
 #include "common/AnalogHamiltonian.h"
 #include "nlohmann/json.hpp"
 #include <nanobind/stl/optional.h>
@@ -20,6 +21,22 @@ namespace cudaq {
 
 /// @brief Binds the `cudaq::ahs` classes.
 void bindAnalogHamiltonian(nanobind::module_ &mod) {
+
+  nanobind::class_<ahs::DeviceSpecification>(mod, "DeviceSpecification")
+      .def(nanobind::init<double, double>(), nanobind::arg("rydberg_c6"),
+           nanobind::arg("phase_sign") = 1.0)
+      .def_rw("rydberg_c6", &ahs::DeviceSpecification::rydbergC6)
+      .def_rw("phase_sign", &ahs::DeviceSpecification::phaseSign);
+  mod.def("device_specification", &ahs::deviceSpecification,
+          nanobind::arg("name"));
+  mod.def(
+      "rydberg_hamiltonian",
+      [](const ahs::Program &program, const ahs::DeviceSpecification &device) {
+        return ahs::makeRydbergModel(program, device).hamiltonian;
+      },
+      nanobind::arg("program"), nanobind::arg("device"),
+      "Build H/hbar in rad/s with parameter t in seconds. "
+      "Use ground=0, Rydberg=1, and site 0 at the least significant index.");
 
   nanobind::class_<cudaq::ahs::AtomArrangement>(mod, "AtomArrangement")
       .def(nanobind::init<>())
@@ -37,8 +54,8 @@ void bindAnalogHamiltonian(nanobind::module_ &mod) {
       .def_rw("times", &cudaq::ahs::TimeSeries::times);
 
   nanobind::class_<cudaq::ahs::FieldPattern>(mod, "FieldPattern")
-      /// NOTE: Other constructors not required from Python interface
       .def(nanobind::init<>())
+      .def(nanobind::init<const std::vector<double> &>())
       .def_rw("patternStr", &cudaq::ahs::FieldPattern::patternStr)
       .def_rw("patternVals", &cudaq::ahs::FieldPattern::patternVals);
 

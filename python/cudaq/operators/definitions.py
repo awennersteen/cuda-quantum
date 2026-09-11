@@ -34,6 +34,13 @@ class RydbergHamiltonian:
     """
     Representation for the time-dependent Hamiltonian which is simulated by
     analog neutral-atom machines such as QuEra's Aquila and Pasqal's Fresnel.
+    Coordinates are in meters, schedule times in seconds, amplitude and detuning
+    in rad/s, and phase in radians. Amplitude and detuning are linearly
+    interpolated between schedule points; phase is held constant until the next
+    point. Use ground=0 and Rydberg=1, with a positive sin(phase) Pauli-Y term.
+    Ideal emulation takes C6/hbar from the target's device specification:
+    FRESNEL_CAN1 for Pasqal and Aquila for QuEra. The `rydberg_c6` target argument
+    overrides C6/hbar in rad m^6 / s for emulation only.
     Ref: https://docs.aws.amazon.com/braket/latest/developerguide/braket-quera-submitting-analog-program-aquila.html#braket-quera-ahs-program-schema
     """
 
@@ -71,18 +78,9 @@ class RydbergHamiltonian:
             raise ValueError(
                 "Size of `atom_sites` and `atom_filling` must be equal")
 
-        if delta_local is not None:
-            raise NotImplementedError(
-                "Local detuning is experimental feature not yet supported in CUDA-Q"
-            )
-
         self.atom_sites = atom_sites
         self.atom_filling = atom_filling
         self.amplitude = amplitude
         self.phase = phase
         self.delta_global = delta_global
         self.delta_local = delta_local
-
-        ## TODO [FUTURE]: Construct the Hamiltonian terms from the supplied parameters using
-        # the following 'fixed' values: s_minus, s_plus, n_op, C6
-        # Also, the spatial pattern of Omega(t), phi(t) and Delta_global(t) must be 'uniform'

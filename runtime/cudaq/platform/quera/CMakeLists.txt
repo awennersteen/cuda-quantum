@@ -10,6 +10,7 @@ set(LIBRARY_NAME cudaq-quera-qpu)
 message(STATUS "Building QuEra REST QPU.")
 
 add_library(${LIBRARY_NAME} SHARED QuEraExecutor.cpp QuEraRemoteRESTQPU.cpp QuEraServerHelper.cpp)
+add_ahs_emulation(${LIBRARY_NAME})
 
 target_include_directories(${LIBRARY_NAME} PRIVATE .
     PUBLIC 
