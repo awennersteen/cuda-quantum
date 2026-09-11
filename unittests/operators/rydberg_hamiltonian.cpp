@@ -67,6 +67,19 @@ TEST(AHSModelTest, PhaseSignAndDetuning) {
   EXPECT_DOUBLE_EQ(matrix(1, 1).real(), -3e6);
 }
 
+TEST(AHSModelTest, AquilaPhaseConvention) {
+  // AWS: Omega/2 (exp(i phi)|g><r| + exp(-i phi)|r><g|) - Delta n.
+  // https://docs.aws.amazon.com/braket/latest/developerguide/braket-quera-submitting-analog-program-aquila.html
+  const double phase = 0.7;
+  auto matrix = matrixAt(ahs::makeRydbergModel(
+      makeProgram({{0., 0.}}, 4e6, phase, 1.5e6), ahs::aquila));
+  const auto excitation = 2e6 * std::exp(std::complex<double>(0., -phase));
+  EXPECT_NEAR(std::abs(matrix(1, 0) - excitation), 0., 1e-9);
+  EXPECT_NEAR(std::abs(matrix(0, 1) - std::conj(excitation)), 0., 1e-9);
+  EXPECT_DOUBLE_EQ(matrix(0, 0).real(), 0.0);
+  EXPECT_DOUBLE_EQ(matrix(1, 1).real(), -1.5e6);
+}
+
 TEST(AHSModelTest, AsymmetricRegisterOrdering) {
   auto model = ahs::makeRydbergModel(
       makeProgram({{0., 0.}, {6e-6, 0.}, {0., 8e-6}}), ahs::fresnelCan);

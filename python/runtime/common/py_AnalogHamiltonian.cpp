@@ -23,8 +23,10 @@ namespace cudaq {
 void bindAnalogHamiltonian(nanobind::module_ &mod) {
 
   nanobind::class_<ahs::DeviceSpecification>(mod, "DeviceSpecification")
-      .def(nanobind::init<double>(), nanobind::arg("rydberg_c6"))
-      .def_rw("rydberg_c6", &ahs::DeviceSpecification::rydbergC6);
+      .def(nanobind::init<double, double>(), nanobind::arg("rydberg_c6"),
+           nanobind::arg("phase_sign") = 1.0)
+      .def_rw("rydberg_c6", &ahs::DeviceSpecification::rydbergC6)
+      .def_rw("phase_sign", &ahs::DeviceSpecification::phaseSign);
   mod.def("device_specification", &ahs::deviceSpecification,
           nanobind::arg("name"));
   mod.def(

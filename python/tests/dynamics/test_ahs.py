@@ -71,6 +71,66 @@ def test_pulser_hamiltonian_and_state_parity(num_atoms, phase):
     np.testing.assert_allclose(evolved, expected_state, atol=1e-7, rtol=1e-7)
 
 
+def test_frozen_pulser_hamiltonian_and_state_parity():
+    """Check a fixed Pulser reference without requiring Pulser to be installed."""
+    # Pulser/pulser-simulation 1.9.1, MockDevice level 60, ConstantPulse
+    # (800 ns, 4 rad/us, 1.5 rad/us, phase 0.7), no modulation, sampling_rate=1.
+    # get_hamiltonian(200), reversed into |g>, |r> with site 0 first.
+    expected = np.diag([
+        0., -1.5, -1.5, -2.13427698, -1.5, 0.30247123718261726,
+        15.555448816872428, 18.223643074055044
+    ]).astype(complex)
+    for i, j in [(0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3), (2, 6), (3, 7),
+                 (4, 5), (4, 6), (5, 7), (6, 7)]:
+        expected[i, j] = 1.5296843745689768 - 1.2884353744753825j
+        expected[j, i] = expected[i, j].conjugate()
+    program = _program([(0., 0.), (6e-6, 0.), (0., 8e-6)], [4e6] * 2, [0.7] * 2,
+                       [1.5e6] * 2, [0., 4e-7])
+    ahs = cudaq_runtime.ahs
+    operator = ahs.rydberg_hamiltonian(program,
+                                       ahs.device_specification("FRESNEL_CAN1"))
+    matrix = operator.to_matrix({
+        0: 2,
+        1: 2,
+        2: 2
+    }, t=2e-7, invert_order=True) * 1e-6
+    np.testing.assert_allclose(matrix, expected, atol=1e-10, rtol=1e-12)
+    # Pulser get_state(0.4, ignore_global_phase=False), rtol=1e-10, atol=1e-12.
+    expected_state = np.array([
+        0.3308467330777477 - 0.13892272361725103j,
+        0.23960009327203305 - 0.20646028774714997j,
+        0.3650697083546202 - 0.21793064675246762j,
+        0.17670328828213308 - 0.40872876500980404j,
+        0.3797685246725184 - 0.18669475720672554j,
+        0.021736946006670907 - 0.44326848064178115j,
+        -0.10159740193158978 - 0.005599642652013225j,
+        -0.05736830935751294 + 0.049708453262244066j
+    ])
+    energies, vectors = np.linalg.eigh(matrix)
+    evolved = vectors @ (np.exp(-0.4j * energies) * vectors[0].conj())
+    np.testing.assert_allclose(evolved, expected_state, atol=1e-7, rtol=1e-7)
+
+
+@pytest.mark.parametrize("device_name", ["Aquila", "FRESNEL_CAN1"])
+def test_device_phase_convention(device_name):
+    """Compare nonzero drive phases with the device's raising/lowering terms."""
+    # AWS uses exp(+i phi)|g><r| + exp(-i phi)|r><g|; Pulser reverses phi.
+    # https://docs.aws.amazon.com/braket/latest/developerguide/braket-quera-submitting-analog-program-aquila.html
+    phase = 0.7
+    sign = -1. if device_name == "Aquila" else 1.
+    ahs = cudaq_runtime.ahs
+    spec = ahs.device_specification(device_name)
+    assert spec.phase_sign == sign
+    program = _program([(0., 0.)], [4e6] * 2, [phase] * 2, [1.5e6] * 2,
+                       [0., 4e-7])
+    coupling = 2e6 * np.exp(-1j * sign * phase)
+    expected = np.array([[0., coupling], [coupling.conjugate(), -1.5e6]])
+    for device in (spec, ahs.DeviceSpecification(spec.rydberg_c6, sign)):
+        matrix = ahs.rydberg_hamiltonian(program, device).to_matrix({0: 2},
+                                                                    t=0.)
+        np.testing.assert_allclose(matrix, expected, atol=1e-9, rtol=1e-12)
+
+
 def test_phase_jump_and_nanosecond_payload():
     """Keep phase jumps and nanosecond times in the AHS representation."""
     import json
@@ -88,7 +148,7 @@ def test_phase_jump_and_nanosecond_payload():
     before = operator.to_matrix({0: 2}, t=0.5e-9)
     after = operator.to_matrix({0: 2}, t=1.5e-9)
     assert before[0, 1] == pytest.approx(1e6)
-    assert after[0, 1] == pytest.approx(-1j * 1e6)
+    assert after[0, 1] == pytest.approx(1j * 1e6)
 
 
 def test_vendor_neutral_device_coefficient():

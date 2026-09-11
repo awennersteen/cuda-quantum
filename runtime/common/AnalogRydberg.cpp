@@ -90,7 +90,8 @@ auto rydbergPopulation(std::size_t site) {
 }
 
 cudaq::sum_op<cudaq::matrix_handler>
-rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6,
+rydbergHamiltonian(const cudaq::ahs::Program &program,
+                   const cudaq::ahs::DeviceSpecification &device,
                    const std::vector<std::size_t> &occupied) {
   auto hamiltonian = cudaq::matrix_op::empty();
   for (const auto &drive : program.hamiltonian.drivingFields) {
@@ -98,8 +99,9 @@ rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6,
       const auto site = occupied[i];
       hamiltonian +=
           driveCoefficient(drive, site, std::cos) * cudaq::spin_op::x(i);
-      hamiltonian +=
-          driveCoefficient(drive, site, std::sin) * cudaq::spin_op::y(i);
+      hamiltonian += device.phaseSign *
+                     driveCoefficient(drive, site, std::sin) *
+                     cudaq::spin_op::y(i);
       hamiltonian -=
           fieldCoefficient(drive.detuning, site) * rydbergPopulation(i);
     }
@@ -113,7 +115,7 @@ rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6,
   for (std::size_t i = 0; i < occupied.size(); ++i)
     for (std::size_t j = i + 1; j < occupied.size(); ++j)
       hamiltonian +=
-          (rydbergC6 /
+          (device.rydbergC6 /
            std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6)) *
           rydbergPopulation(i) * rydbergPopulation(j);
   return hamiltonian;
@@ -251,8 +253,8 @@ ahs::RydbergModel ahs::makeRydbergModel(const Program &program,
   if (times.size() > 1 && times.back() + maxStep == times.back())
     throw std::invalid_argument(
         "AHS integration step is too small to advance waveform times.");
-  return {rydbergHamiltonian(program, device.rydbergC6, occupied),
-          std::move(dimensions), std::move(times), maxStep};
+  return {rydbergHamiltonian(program, device, occupied), std::move(dimensions),
+          std::move(times), maxStep};
 }
 
 } // namespace cudaq
