@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <functional>
 #include <random>
 
 namespace cudaq {
@@ -20,25 +19,15 @@ double interpolate(const cudaq::ahs::TimeSeries &series, double time,
                    bool constant = false) {
   if (series.times.empty())
     return 0.0;
-  if (constant) {
-    auto next =
-        std::upper_bound(series.times.begin(), series.times.end(), time);
-    return series
-        .values[next == series.times.begin() ? 0
-                                             : next - series.times.begin() - 1];
-  }
-  if (time <= series.times.front())
+  auto next = std::upper_bound(series.times.begin(), series.times.end(), time);
+  if (next == series.times.begin())
     return series.values.front();
-  for (std::size_t i = 1; i < series.times.size(); ++i) {
-    if (time <= series.times[i]) {
-      const auto t0 = series.times[i - 1];
-      const auto t1 = series.times[i];
-      const auto v0 = series.values[i - 1];
-      const auto v1 = series.values[i];
-      return v0 + (v1 - v0) * ((time - t0) / (t1 - t0));
-    }
-  }
-  return series.values.back();
+  const auto i = next - series.times.begin() - 1;
+  if (constant || next == series.times.end())
+    return series.values[i];
+  return std::lerp(series.values[i], series.values[i + 1],
+                   (time - series.times[i]) /
+                       (series.times[i + 1] - series.times[i]));
 }
 
 std::vector<double> uniqueTimes(const cudaq::ahs::Program &program) {
@@ -71,82 +60,62 @@ double siteScale(const cudaq::ahs::PhysicalField &field, std::size_t site) {
              : field.pattern.patternVals[site];
 }
 
-cudaq::scalar_operator
-fieldCoefficient(const cudaq::ahs::TimeSeries &series,
-                 const std::function<double(double)> &scale) {
+cudaq::scalar_operator fieldCoefficient(const cudaq::ahs::PhysicalField &field,
+                                        std::size_t site) {
   return cudaq::scalar_operator(
-      [series,
-       scale](const std::unordered_map<std::string, std::complex<double>>
-                  &parameters) {
-        const auto time = parameters.at("t").real();
-        return std::complex<double>(scale(interpolate(series, time)), 0.0);
+      [series = field.time_series,
+       scale = siteScale(field, site)](const cudaq::parameter_map &parameters) {
+        return scale * interpolate(series, parameters.at("t").real());
       },
       {{"t", "time"}});
+}
+
+cudaq::scalar_operator driveCoefficient(const cudaq::ahs::DrivingField &drive,
+                                        std::size_t site,
+                                        double (*quadrature)(double)) {
+  return cudaq::scalar_operator(
+      [amplitude = drive.amplitude.time_series, phase = drive.phase.time_series,
+       amplitudeScale = 0.5 * siteScale(drive.amplitude, site),
+       phaseScale = siteScale(drive.phase, site),
+       quadrature](const cudaq::parameter_map &parameters) {
+        const auto time = parameters.at("t").real();
+        return amplitudeScale * interpolate(amplitude, time) *
+               quadrature(phaseScale * interpolate(phase, time, true));
+      },
+      {{"t", "time"}});
+}
+
+auto rydbergPopulation(std::size_t site) {
+  return cudaq::matrix_op::number(site);
 }
 
 cudaq::sum_op<cudaq::matrix_handler>
 rydbergHamiltonian(const cudaq::ahs::Program &program, double rydbergC6,
                    const std::vector<std::size_t> &occupied) {
-  auto hamiltonian = cudaq::spin_op::empty();
+  auto hamiltonian = cudaq::matrix_op::empty();
   for (const auto &drive : program.hamiltonian.drivingFields) {
     for (std::size_t i = 0; i < occupied.size(); ++i) {
       const auto site = occupied[i];
-      const auto xCoefficient = cudaq::scalar_operator(
-          [drive,
-           site](const std::unordered_map<std::string, std::complex<double>>
-                     &parameters) {
-            const auto time = parameters.at("t").real();
-            const auto omega = siteScale(drive.amplitude, site) *
-                               interpolate(drive.amplitude.time_series, time);
-            const auto phase = siteScale(drive.phase, site) *
-                               interpolate(drive.phase.time_series, time, true);
-            return std::complex<double>(0.5 * omega * std::cos(phase), 0.0);
-          },
-          {{"t", "time"}});
-      const auto yCoefficient = cudaq::scalar_operator(
-          [drive,
-           site](const std::unordered_map<std::string, std::complex<double>>
-                     &parameters) {
-            const auto time = parameters.at("t").real();
-            const auto omega = siteScale(drive.amplitude, site) *
-                               interpolate(drive.amplitude.time_series, time);
-            const auto phase = siteScale(drive.phase, site) *
-                               interpolate(drive.phase.time_series, time, true);
-            return std::complex<double>(0.5 * omega * std::sin(phase), 0.0);
-          },
-          {{"t", "time"}});
-      const auto detuningCoefficient =
-          fieldCoefficient(drive.detuning.time_series,
-                           [scale = siteScale(drive.detuning, site)](
-                               double delta) { return -0.5 * scale * delta; });
-      hamiltonian += xCoefficient * cudaq::spin_op::x(i);
-      hamiltonian += yCoefficient * cudaq::spin_op::y(i);
-      hamiltonian += detuningCoefficient *
-                     (cudaq::spin_op::identity(i) - cudaq::spin_op::z(i));
+      hamiltonian +=
+          driveCoefficient(drive, site, std::cos) * cudaq::spin_op::x(i);
+      hamiltonian +=
+          driveCoefficient(drive, site, std::sin) * cudaq::spin_op::y(i);
+      hamiltonian -=
+          fieldCoefficient(drive.detuning, site) * rydbergPopulation(i);
     }
   }
   for (const auto &local : program.hamiltonian.localDetuning)
     for (std::size_t i = 0; i < occupied.size(); ++i)
-      hamiltonian +=
-          fieldCoefficient(local.magnitude.time_series,
-                           [scale = siteScale(local.magnitude, occupied[i])](
-                               double delta) { return -0.5 * scale * delta; }) *
-          (cudaq::spin_op::identity(i) - cudaq::spin_op::z(i));
+      hamiltonian -=
+          fieldCoefficient(local.magnitude, occupied[i]) * rydbergPopulation(i);
 
   const auto &sites = program.setup.ahs_register.sites;
-  for (std::size_t i = 0; i < occupied.size(); ++i) {
-    for (std::size_t j = i + 1; j < occupied.size(); ++j) {
-      const auto interaction =
-          0.25 * rydbergC6 /
-          std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6);
+  for (std::size_t i = 0; i < occupied.size(); ++i)
+    for (std::size_t j = i + 1; j < occupied.size(); ++j)
       hamiltonian +=
-          interaction *
-          (cudaq::spin_op::identity(i) * cudaq::spin_op::identity(j) -
-           cudaq::spin_op::identity(i) * cudaq::spin_op::z(j) -
-           cudaq::spin_op::z(i) * cudaq::spin_op::identity(j) +
-           cudaq::spin_op::z(i) * cudaq::spin_op::z(j));
-    }
-  }
+          (rydbergC6 /
+           std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6)) *
+          rydbergPopulation(i) * rydbergPopulation(j);
   return hamiltonian;
 }
 
@@ -230,8 +199,6 @@ ahs::sampleStateVector(const std::vector<std::complex<double>> &state,
 ahs::DeviceSpecification ahs::deviceSpecification(const std::string &name) {
   if (name == "FRESNEL_CAN1" || name == "FRESNEL_CAN")
     return fresnelCan;
-  if (name == "AnalogDevice")
-    return analogDevice;
   if (name == "Aquila")
     return aquila;
   throw std::invalid_argument("Unknown AHS device specification: " + name);
@@ -240,6 +207,9 @@ ahs::DeviceSpecification ahs::deviceSpecification(const std::string &name) {
 ahs::RydbergModel ahs::makeRydbergModel(const Program &program,
                                         const DeviceSpecification &device) {
   validateProgram(program);
+  if (!std::isfinite(device.rydbergC6))
+    throw std::invalid_argument(
+        "AHS emulation requires a finite C6 coefficient.");
   dimension_map dimensions;
   const auto &sites = program.setup.ahs_register.sites;
   std::vector<std::size_t> occupied;
@@ -271,11 +241,18 @@ ahs::RydbergModel ahs::makeRydbergModel(const Program &program,
       bound += std::abs(device.rydbergC6) /
                std::pow(distance(sites[occupied[i]], sites[occupied[j]]), 6);
 
+  if (!std::isfinite(bound))
+    throw std::invalid_argument("AHS Hamiltonian norm bound must be finite.");
+
   // Limit the RK4 step by the Hamiltonian norm as well as the waveform scale.
   // A fixed 1 ns step is unstable for tightly spaced atoms.
   const auto maxStep = bound > 0.0 ? std::min(1e-9, 0.1 / bound) : 1e-9;
+  auto times = uniqueTimes(program);
+  if (times.size() > 1 && times.back() + maxStep == times.back())
+    throw std::invalid_argument(
+        "AHS integration step is too small to advance waveform times.");
   return {rydbergHamiltonian(program, device.rydbergC6, occupied),
-          std::move(dimensions), uniqueTimes(program), maxStep};
+          std::move(dimensions), std::move(times), maxStep};
 }
 
 } // namespace cudaq

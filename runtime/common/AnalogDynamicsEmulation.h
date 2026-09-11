@@ -17,6 +17,21 @@
 namespace cudaq {
 
 namespace ahs {
+/// Physics parameters for ideal AHS emulation, independent of a transport.
+/// C6 includes 1/hbar and is measured in rad m^6 / s. Hardware constraints
+/// and calibration data are not part of this specification.
+struct DeviceSpecification {
+  double rydbergC6;
+};
+
+/// FRESNEL_CAN1 cloud specification (2026-09-11): Rb-87, 60S.
+/// Pulser's level-60 coefficient is 865723.02 rad us^-1 um^6.
+inline constexpr DeviceSpecification fresnelCan{865723.02e-30};
+/// QuEra Aquila: the Braket c6Coefficient in rad m^6 / s.
+inline constexpr DeviceSpecification aquila{5.42e-24};
+
+DeviceSpecification deviceSpecification(const std::string &name);
+
 /// Hamiltonian in rad/s, with time parameter `t` in seconds and site 0 at the
 /// least significant tensor index, following CUDA-Q's operator convention.
 /// Use |g> = |0>, |r> = |1>, and Omega/2 (cos(phi) X + sin(phi) Y).

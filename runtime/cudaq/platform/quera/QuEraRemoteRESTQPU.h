@@ -19,8 +19,7 @@ class QuEraRemoteRESTQPU : public AnalogRemoteRESTQPU {
                                             const ahs::AtomArrangement &atoms);
 
 public:
-  QuEraRemoteRESTQPU()
-      : AnalogRemoteRESTQPU(ahs::aquila, formatEmulatedResult) {}
+  QuEraRemoteRESTQPU();
   QuEraRemoteRESTQPU(QuEraRemoteRESTQPU &&) = delete;
   ~QuEraRemoteRESTQPU() override;
 };

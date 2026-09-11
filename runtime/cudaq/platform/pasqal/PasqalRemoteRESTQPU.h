@@ -16,7 +16,7 @@ namespace cudaq {
 /// execution of Analog Hamiltonian Programs via a REST Client.
 class PasqalRemoteRESTQPU : public AnalogRemoteRESTQPU {
 public:
-  PasqalRemoteRESTQPU() : AnalogRemoteRESTQPU(ahs::fresnelCan) {}
+  PasqalRemoteRESTQPU();
   PasqalRemoteRESTQPU(PasqalRemoteRESTQPU &&) = delete;
   ~PasqalRemoteRESTQPU() override;
 };

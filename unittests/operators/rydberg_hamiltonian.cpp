@@ -10,6 +10,7 @@
 #include "nlohmann/json.hpp"
 #include "cudaq/operators.h"
 #include <gtest/gtest.h>
+#include <limits>
 #include <numbers>
 
 using namespace cudaq;
@@ -38,11 +39,11 @@ complex_matrix matrixAt(const ahs::RydbergModel &model, double time = 0.0) {
 TEST(AHSModelTest, DeviceCoefficientsAndUnits) {
   EXPECT_DOUBLE_EQ(ahs::deviceSpecification("FRESNEL_CAN1").rydbergC6,
                    865723.02 * 1e-30);
-  EXPECT_DOUBLE_EQ(ahs::deviceSpecification("AnalogDevice").rydbergC6,
+  EXPECT_DOUBLE_EQ(ahs::deviceSpecification("FRESNEL_CAN").rydbergC6,
                    865723.02 * 1e-30);
   EXPECT_DOUBLE_EQ(ahs::deviceSpecification("Aquila").rydbergC6, 5.42e-24);
   EXPECT_THROW(ahs::deviceSpecification("unknown"), std::invalid_argument);
-  for (auto device : {ahs::analogDevice, ahs::aquila}) {
+  for (auto device : {ahs::fresnelCan, ahs::aquila}) {
     auto matrix = matrixAt(
         ahs::makeRydbergModel(makeProgram({{0., 0.}, {5e-6, 0.}}), device));
     EXPECT_NEAR(matrix(3, 3).real(), device.rydbergC6 / std::pow(5e-6, 6),
@@ -57,8 +58,7 @@ TEST(AHSModelTest, DeviceCoefficientsAndUnits) {
 
 TEST(AHSModelTest, PhaseSignAndDetuning) {
   auto model = ahs::makeRydbergModel(
-      makeProgram({{0., 0.}}, 2e6, std::numbers::pi / 2, 3e6),
-      ahs::analogDevice);
+      makeProgram({{0., 0.}}, 2e6, std::numbers::pi / 2, 3e6), ahs::fresnelCan);
   auto matrix = matrixAt(model);
   EXPECT_NEAR(std::abs(matrix(0, 1) - std::complex<double>(0., -1e6)), 0.,
               1e-9);
@@ -86,7 +86,7 @@ TEST(AHSModelTest, WaveformInterpolation) {
   drive.detuning.time_series = ahs::TimeSeries({{-2e6, 0.}, {2e6, 1e-6}});
   drive.phase.time_series =
       ahs::TimeSeries({{0., 0.}, {std::numbers::pi / 2, 5e-7}, {0., 1e-6}});
-  auto model = ahs::makeRydbergModel(program, ahs::analogDevice);
+  auto model = ahs::makeRydbergModel(program, ahs::fresnelCan);
   EXPECT_EQ(model.times, (std::vector<double>{0., 5e-7, 1e-6}));
   auto before = matrixAt(model, 2.5e-7);
   auto after = matrixAt(model, 7.5e-7);
@@ -106,10 +106,6 @@ TEST(AHSModelTest, PreserveNanosecondTimesAndCoordinates) {
             (std::vector<double>{0., 1e-9}));
   EXPECT_EQ(decoded.hamiltonian.drivingFields[0].amplitude.time_series.values,
             program.hamiltonian.drivingFields[0].amplitude.time_series.values);
-  nlohmann::json numeric = {{"values", {1.5, 2.0}}, {"times", {0., 1e-9}}};
-  auto series = numeric.get<ahs::TimeSeries>();
-  EXPECT_EQ(series.times, (std::vector<double>{0., 1e-9}));
-  EXPECT_EQ(series.values, (std::vector<double>{1.5, 2.0}));
 }
 
 TEST(AHSModelTest, StepTracksInteractionStrength) {
@@ -118,6 +114,40 @@ TEST(AHSModelTest, StepTracksInteractionStrength) {
   EXPECT_LT(model.maxStep, 1e-9);
   EXPECT_LE(model.maxStep * ahs::aquila.rydbergC6 / std::pow(1e-6, 6),
             0.1000000001);
+}
+
+TEST(AHSModelTest, RejectNonFiniteDeviceCoefficient) {
+  const auto program = makeProgram({{0., 0.}});
+  for (auto c6 : {std::numeric_limits<double>::quiet_NaN(),
+                  std::numeric_limits<double>::infinity(),
+                  -std::numeric_limits<double>::infinity()})
+    EXPECT_THROW(ahs::makeRydbergModel(program, ahs::DeviceSpecification{c6}),
+                 std::invalid_argument);
+  for (auto c6 : {0.0, -ahs::fresnelCan.rydbergC6})
+    EXPECT_NO_THROW(ahs::makeRydbergModel(makeProgram({{0., 0.}, {6e-6, 0.}}),
+                                          ahs::DeviceSpecification{c6}));
+}
+
+TEST(AHSModelTest, RejectNonFiniteHamiltonianBound) {
+  EXPECT_THROW(ahs::makeRydbergModel(makeProgram({{0., 0.}, {6e-6, 0.}}),
+                                     ahs::DeviceSpecification{1e300}),
+               std::invalid_argument);
+  // A vanishing distance-to-the-sixth can produce either infinity or NaN.
+  for (auto c6 : {ahs::fresnelCan.rydbergC6, 0.0})
+    EXPECT_THROW(ahs::makeRydbergModel(makeProgram({{0., 0.}, {1e-60, 0.}}),
+                                       ahs::DeviceSpecification{c6}),
+                 std::invalid_argument);
+  EXPECT_THROW(
+      ahs::makeRydbergModel(makeProgram({{0., 0.}, {6e-6, 0.}}, 0., 0.,
+                                        std::numeric_limits<double>::max()),
+                            ahs::fresnelCan),
+      std::invalid_argument);
+}
+
+TEST(AHSModelTest, RejectStepThatCannotAdvanceTime) {
+  EXPECT_THROW(ahs::makeRydbergModel(makeProgram({{0., 0.}, {6e-6, 0.}}),
+                                     ahs::DeviceSpecification{1.0}),
+               std::invalid_argument);
 }
 
 TEST(AHSModelTest, SamplingSiteOrderShotsAndSeed) {

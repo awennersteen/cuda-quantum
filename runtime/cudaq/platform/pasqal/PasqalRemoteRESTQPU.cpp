@@ -8,6 +8,13 @@
 
 #include "PasqalRemoteRESTQPU.h"
 
+cudaq::PasqalRemoteRESTQPU::PasqalRemoteRESTQPU()
+    : AnalogRemoteRESTQPU(ahs::fresnelCan) {
+#ifdef CUDAQ_ENABLE_AHS_EMULATION
+  emulator = emulateRydbergDynamics;
+#endif
+}
+
 cudaq::PasqalRemoteRESTQPU::~PasqalRemoteRESTQPU() = default;
 
 CUDAQ_REGISTER_TYPE(cudaq::QPU, cudaq::PasqalRemoteRESTQPU, pasqal)

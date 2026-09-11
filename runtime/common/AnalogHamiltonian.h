@@ -164,27 +164,14 @@ struct Program {
   Hamiltonian hamiltonian;
 };
 
-/// Physics parameters for ideal AHS emulation, independent of a transport.
-/// C6 includes 1/hbar and is measured in rad m^6 / s. Hardware constraints
-/// and calibration data are not part of this specification.
-struct DeviceSpecification {
-  double rydbergC6;
-};
-
-/// FRESNEL_CAN1 cloud specification (2026-09-11): Rb-87, 60S.
-/// Pulser's level-60 coefficient is 865723.02 rad us^-1 um^6.
-inline constexpr DeviceSpecification fresnelCan{865723.02e-30};
-inline constexpr DeviceSpecification analogDevice = fresnelCan;
-/// QuEra Aquila: the Braket c6Coefficient in rad m^6 / s.
-inline constexpr DeviceSpecification aquila{5.42e-24};
-
-DeviceSpecification deviceSpecification(const std::string &name);
-
 void to_json(json &j, const Program &p);
 void from_json(const json &j, Program &p);
 
 /// @brief Serialize an Analog Hamiltonian Simulation program to a JSON string.
 std::string toJsonString(const Program &program);
+
+/// @brief Deserialize an Analog Hamiltonian Simulation program.
+Program fromJsonString(const std::string &program);
 
 ///////////////////////////////////////////////////////////////////////////////
 // The following classes represent the result of Analog Hamiltonian Simulation

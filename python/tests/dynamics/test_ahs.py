@@ -162,10 +162,13 @@ def test_ahs_routing_uses_hamiltonian_type(monkeypatch, is_async):
     assert launches[0][2] == 17
 
 
-@pytest.mark.parametrize("target", ["pasqal", "quera"])
+@pytest.mark.parametrize("target, c6_override", [("pasqal", None),
+                                                 ("quera", None),
+                                                 ("pasqal", 5.42e-24)])
 @pytest.mark.parametrize("is_async", [False, True])
 @pytest.mark.parametrize("ramp", [False, True])
-def test_local_detuning_with_vacancy_e2e(target, is_async, ramp, monkeypatch):
+def test_local_detuning_with_vacancy_e2e(target, c6_override, is_async, ramp,
+                                         monkeypatch):
     """Evolve occupied atoms with local detuning through the real QPU launch path."""
     import cudaq
     from cudaq.dynamics import Schedule
@@ -176,7 +179,8 @@ def test_local_detuning_with_vacancy_e2e(target, is_async, ramp, monkeypatch):
             cudaq.num_available_gpus()):
         pytest.skip("AHS emulation requires the target, dynamics and a GPU")
     monkeypatch.setenv("DISABLE_REMOTE_SEND", "1")
-    cudaq.set_target(target, emulate=True)
+    options = {} if c6_override is None else {"rydberg_c6": str(c6_override)}
+    cudaq.set_target(target, emulate=True, **options)
     cudaq.set_random_seed(47)
     h = RydbergHamiltonian(
         [(0., 0.), (1e-6, 0.), (6e-6, 0.)],
@@ -194,7 +198,8 @@ def test_local_detuning_with_vacancy_e2e(target, is_async, ramp, monkeypatch):
     y = np.array([[0., -1j], [1j, 0.]])
     n, identity = np.diag([0., 1.]), np.eye(2)
     drive = 2e6 * (np.cos(0.7) * x + np.sin(0.7) * y)
-    c6 = 865723.02e-30 if target == "pasqal" else 5.42e-24
+    c6 = c6_override if c6_override is not None else (
+        865723.02e-30 if target == "pasqal" else 5.42e-24)
     matrix = (np.kron(drive - 1e6 * n, identity) +
               np.kron(identity, drive - 1e6 * n) + c6 /
               (6e-6)**6 * np.kron(n, n))
@@ -236,6 +241,33 @@ def test_malformed_waveform_emulation(is_async):
                        match="times and values must have equal lengths"):
         result = launch("__analog_hamiltonian_kernel__malformed",
                         json.dumps(payload), 10)
+        if is_async:
+            result.get()
+
+
+@pytest.mark.parametrize("c6, message", [
+    ("nan", "finite C6 coefficient"),
+    ("inf", "finite C6 coefficient"),
+    ("-inf", "finite C6 coefficient"),
+    ("1e300", "Hamiltonian norm bound must be finite"),
+    ("1.0", "step is too small to advance waveform times"),
+])
+@pytest.mark.parametrize("is_async", [False, True])
+def test_numerically_invalid_emulation(c6, message, is_async):
+    """Reject invalid numerical scales through sync and async emulation."""
+    import cudaq
+
+    if not (cudaq.has_target("pasqal") and cudaq.has_target("dynamics") and
+            cudaq.num_available_gpus()):
+        pytest.skip("AHS emulation requires PASQAL, dynamics and a GPU")
+    cudaq.set_target("pasqal", emulate=True, rydberg_c6=c6)
+    program = _program([(0., 0.), (6e-6, 0.)], [0., 0.], [0., 0.], [0., 0.],
+                       [0., 1e-7])
+    launch = (cudaq_runtime.launch_analog_kernel_async
+              if is_async else cudaq_runtime.launch_analog_kernel)
+    with pytest.raises(ValueError, match=message):
+        result = launch("__analog_hamiltonian_kernel__invalid_scale",
+                        program.to_json(), 10)
         if is_async:
             result.get()
 

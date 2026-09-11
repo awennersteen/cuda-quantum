@@ -8,6 +8,13 @@
 
 #include "QuEraRemoteRESTQPU.h"
 
+cudaq::QuEraRemoteRESTQPU::QuEraRemoteRESTQPU()
+    : AnalogRemoteRESTQPU(ahs::aquila, formatEmulatedResult) {
+#ifdef CUDAQ_ENABLE_AHS_EMULATION
+  emulator = emulateRydbergDynamics;
+#endif
+}
+
 cudaq::sample_result cudaq::QuEraRemoteRESTQPU::formatEmulatedResult(
     const sample_result &result, const ahs::AtomArrangement &atoms) {
   CountsDictionary states, preSequence, postSequence;

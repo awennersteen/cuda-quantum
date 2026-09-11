@@ -9,7 +9,6 @@
 import cudaq
 from cudaq.dynamics import Schedule
 from cudaq.operators import RydbergHamiltonian, ScalarOperator
-import json
 import numpy as np
 import os
 import pytest
@@ -25,57 +24,10 @@ skipIfPasqalEmulationUnavailable = pytest.mark.skipif(
     reason='Pasqal emulation requires the dynamics backend and a CUDA GPU')
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def set_up_target():
-    # NOTE: Credentials can be set with environment variables.
-    # This test covers the direct `pasqal` backend only.
-    # QRMI-routed execution is validated separately because it requires a
-    # supported QRMI build and a compatible cluster resource manager.
-    cudaq.set_target("pasqal")
     yield "Running the tests."
     cudaq.reset_target()
-
-
-def test_JSON_payload(monkeypatch):
-    """Exercise the launch payload without submitting a cloud job."""
-    monkeypatch.setenv("DISABLE_REMOTE_SEND", "1")
-    input = {
-        "setup": {
-            "ahs_register": {
-                "sites": [[0, 0], [0, 0.000004], [0.000004, 0]],
-                "filling": [1, 1, 1]
-            }
-        },
-        "hamiltonian": {
-            "drivingFields": [{
-                "amplitude": {
-                    "time_series": {
-                        "values": [0, 15700000, 15700000, 0],
-                        "times": [0, 0.000001, 0.000002, 0.000003]
-                    },
-                    "pattern": "uniform"
-                },
-                "phase": {
-                    "time_series": {
-                        "values": [0, 0],
-                        "times": [0, 0.000003]
-                    },
-                    "pattern": "uniform"
-                },
-                "detuning": {
-                    "time_series": {
-                        "values": [-54000000, 54000000],
-                        "times": [0, 0.000003]
-                    },
-                    "pattern": "uniform"
-                }
-            }],
-            "localDetuning": []
-        }
-    }
-    # NOTE: For internal testing only, not user-level API; this does not return results
-    cudaq.cudaq_runtime.launch_analog_kernel("__analog_hamiltonian_kernel__",
-                                             json.dumps(input), 100)
 
 
 @skipIfPasqalEmulationUnavailable
@@ -147,10 +99,9 @@ def test_evolve_emulate_async_seed():
 
 
 @skipIfPasqalEmulationUnavailable
-@pytest.mark.parametrize("device", ["FRESNEL_CAN1", "Aquila"])
-def test_emulate_pi_pulse(device):
-    """Apply a pi pulse in SI units using either device specification."""
-    cudaq.set_target("pasqal", emulate=True, device=device)
+def test_emulate_pi_pulse():
+    """Apply a pi pulse in SI units with the PASQAL target."""
+    cudaq.set_target("pasqal", emulate=True)
     result = cudaq.evolve(RydbergHamiltonian(
         atom_sites=[(0., 0.)],
         amplitude=ScalarOperator.const(np.pi / 2e-7),

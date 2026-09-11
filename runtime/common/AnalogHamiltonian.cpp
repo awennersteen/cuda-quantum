@@ -28,16 +28,6 @@
 // Same as above, but for required fields: throws if the field is missing.
 #define FROM_JSON_AT_HELPER(field) j.at(#field).get_to(p.field)
 
-namespace {
-std::vector<double> numericValues(const nlohmann::json &values) {
-  std::vector<double> result;
-  for (const auto &value : values)
-    result.push_back(value.is_string() ? std::stod(value.get<std::string>())
-                                       : value.get<double>());
-  return result;
-}
-} // namespace
-
 void cudaq::ahs::to_json(json &j, const AtomArrangement &p) {
   TO_JSON_HELPER(filling);
   // Note: the schema expects floating point numbers as strings
@@ -49,9 +39,10 @@ void cudaq::ahs::to_json(json &j, const AtomArrangement &p) {
 
 void cudaq::ahs::from_json(const json &j, AtomArrangement &p) {
   FROM_JSON_HELPER(filling);
-  p.sites.clear();
-  for (const auto &row : j.at("sites"))
-    p.sites.push_back(numericValues(row));
+  std::vector<std::vector<std::string>> floatAsStrings;
+  j["sites"].get_to(floatAsStrings);
+  for (const auto &row : floatAsStrings)
+    p.sites.push_back(doubleFromStr(row));
 }
 
 void cudaq::ahs::to_json(json &j, const Setup &p) {
@@ -68,8 +59,12 @@ void cudaq::ahs::to_json(json &j, const TimeSeries &p) {
 }
 
 void cudaq::ahs::from_json(const json &j, TimeSeries &p) {
-  p.values = numericValues(j.at("values"));
-  p.times = numericValues(j.at("times"));
+  std::vector<std::string> floatAsStrings;
+  j["values"].get_to(floatAsStrings);
+  p.values = doubleFromStr(floatAsStrings);
+  floatAsStrings.clear();
+  j["times"].get_to(floatAsStrings);
+  p.times = doubleFromStr(floatAsStrings);
 }
 
 void cudaq::ahs::to_json(json &j, const FieldPattern &p) {
@@ -81,7 +76,9 @@ void cudaq::ahs::to_json(json &j, const FieldPattern &p) {
 
 void cudaq::ahs::from_json(const json &j, FieldPattern &p) {
   if (j.is_array()) {
-    p.patternVals = numericValues(j);
+    std::vector<std::string> floatAsStrings;
+    j.get_to(floatAsStrings);
+    p.patternVals = doubleFromStr(floatAsStrings);
     p.patternStr.clear();
   } else {
     j.get_to(p.patternStr);
@@ -141,6 +138,10 @@ void cudaq::ahs::from_json(const json &j, Program &p) {
 
 std::string cudaq::ahs::toJsonString(const Program &program) {
   return json(program).dump();
+}
+
+cudaq::ahs::Program cudaq::ahs::fromJsonString(const std::string &program) {
+  return json::parse(program).get<Program>();
 }
 
 void cudaq::ahs::to_json(json &j, const ShotMetadata &p) {

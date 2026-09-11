@@ -23,11 +23,6 @@ config:
   gen-target-backend: true
 
 target-arguments:
-  - key: device
-    required: false
-    type: string
-    platform-arg: device
-    help-string: "Ideal AHS emulation specification: FRESNEL_CAN1 (default), AnalogDevice, or Aquila."
   - key: rydberg_c6
     required: false
     type: string

@@ -39,8 +39,8 @@ class RydbergHamiltonian:
     interpolated between schedule points; phase is held constant until the next
     point. Use ground=0 and Rydberg=1, with a positive sin(phase) Pauli-Y term.
     Ideal emulation takes C6/hbar from the target's device specification:
-    FRESNEL_CAN1 for Pasqal and Aquila for QuEra. The `device` and `rydberg_c6`
-    target arguments select a preset or override C6/hbar in rad m^6 / s.
+    FRESNEL_CAN1 for Pasqal and Aquila for QuEra. The `rydberg_c6` target argument
+    overrides C6/hbar in rad m^6 / s for emulation only.
     Ref: https://docs.aws.amazon.com/braket/latest/developerguide/braket-quera-submitting-analog-program-aquila.html#braket-quera-ahs-program-schema
     """
 

@@ -53,7 +53,6 @@ void bindAnalogHamiltonian(nanobind::module_ &mod) {
 
   nanobind::class_<cudaq::ahs::FieldPattern>(mod, "FieldPattern")
       .def(nanobind::init<>())
-      .def(nanobind::init<const std::string &>())
       .def(nanobind::init<const std::vector<double> &>())
       .def_rw("patternStr", &cudaq::ahs::FieldPattern::patternStr)
       .def_rw("patternVals", &cudaq::ahs::FieldPattern::patternVals);
