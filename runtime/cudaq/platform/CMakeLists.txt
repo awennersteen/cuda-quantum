@@ -7,6 +7,15 @@
 # ============================================================================ #
 
 include(HandleLLVMOptions)
+
+# AHS transports share one dynamics implementation in nvqir-dynamics.
+function(add_ahs_emulation target)
+  if(TARGET nvqir-dynamics)
+    target_link_libraries(${target} PRIVATE nvqir-dynamics)
+    target_compile_definitions(${target} PRIVATE CUDAQ_ENABLE_AHS_EMULATION)
+  endif()
+endfunction()
+
 add_subdirectory(default)
 if (CUDAQ_ENABLE_ORCA_BACKEND)
   add_subdirectory(orca)

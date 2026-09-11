@@ -6,10 +6,157 @@
  * the terms of the Apache License 2.0 which accompanies this distribution. *
  ******************************************************************************/
 
+#include "common/AnalogDynamicsEmulation.h"
+#include "nlohmann/json.hpp"
 #include "cudaq/operators.h"
 #include <gtest/gtest.h>
+#include <numbers>
 
 using namespace cudaq;
+
+namespace {
+ahs::Program makeProgram(std::vector<std::vector<double>> sites,
+                         double omega = 0.0, double phase = 0.0,
+                         double detuning = 0.0) {
+  ahs::Program program;
+  program.setup.ahs_register.sites = sites;
+  program.setup.ahs_register.filling = std::vector<int>(sites.size(), 1);
+  ahs::DrivingField drive;
+  drive.amplitude.time_series = ahs::TimeSeries({{omega, 0.0}, {omega, 1e-6}});
+  drive.phase.time_series = ahs::TimeSeries({{phase, 0.0}, {phase, 1e-6}});
+  drive.detuning.time_series =
+      ahs::TimeSeries({{detuning, 0.0}, {detuning, 1e-6}});
+  program.hamiltonian.drivingFields = {drive};
+  return program;
+}
+
+complex_matrix matrixAt(const ahs::RydbergModel &model, double time = 0.0) {
+  return model.hamiltonian.to_matrix(model.dimensions, {{"t", time}});
+}
+} // namespace
+
+TEST(AHSModelTest, DeviceCoefficientsAndUnits) {
+  EXPECT_DOUBLE_EQ(ahs::deviceSpecification("FRESNEL_CAN1").rydbergC6,
+                   865723.02 * 1e-30);
+  EXPECT_DOUBLE_EQ(ahs::deviceSpecification("AnalogDevice").rydbergC6,
+                   865723.02 * 1e-30);
+  EXPECT_DOUBLE_EQ(ahs::deviceSpecification("Aquila").rydbergC6, 5.42e-24);
+  EXPECT_THROW(ahs::deviceSpecification("unknown"), std::invalid_argument);
+  for (auto device : {ahs::analogDevice, ahs::aquila}) {
+    auto matrix = matrixAt(
+        ahs::makeRydbergModel(makeProgram({{0., 0.}, {5e-6, 0.}}), device));
+    EXPECT_NEAR(matrix(3, 3).real(), device.rydbergC6 / std::pow(5e-6, 6),
+                1e-6);
+    for (auto basis : {0, 1, 2})
+      EXPECT_NEAR(std::abs(matrix(basis, basis)), 0.0, 1e-8);
+    auto farther = matrixAt(
+        ahs::makeRydbergModel(makeProgram({{0., 0.}, {1e-5, 0.}}), device));
+    EXPECT_NEAR(matrix(3, 3).real() / farther(3, 3).real(), 64.0, 1e-12);
+  }
+}
+
+TEST(AHSModelTest, PhaseSignAndDetuning) {
+  auto model = ahs::makeRydbergModel(
+      makeProgram({{0., 0.}}, 2e6, std::numbers::pi / 2, 3e6),
+      ahs::analogDevice);
+  auto matrix = matrixAt(model);
+  EXPECT_NEAR(std::abs(matrix(0, 1) - std::complex<double>(0., -1e6)), 0.,
+              1e-9);
+  EXPECT_NEAR(std::abs(matrix(1, 0) - std::complex<double>(0., 1e6)), 0., 1e-9);
+  EXPECT_DOUBLE_EQ(matrix(0, 0).real(), 0.0);
+  EXPECT_DOUBLE_EQ(matrix(1, 1).real(), -3e6);
+}
+
+TEST(AHSModelTest, AsymmetricRegisterOrdering) {
+  auto model = ahs::makeRydbergModel(
+      makeProgram({{0., 0.}, {6e-6, 0.}, {0., 8e-6}}), ahs::fresnelCan);
+  auto matrix = matrixAt(model);
+  EXPECT_NEAR(matrix(3, 3).real(),
+              ahs::fresnelCan.rydbergC6 / std::pow(6e-6, 6), 1e-7);
+  EXPECT_NEAR(matrix(5, 5).real(),
+              ahs::fresnelCan.rydbergC6 / std::pow(8e-6, 6), 1e-7);
+  EXPECT_NEAR(matrix(6, 6).real(),
+              ahs::fresnelCan.rydbergC6 / std::pow(1e-5, 6), 1e-7);
+}
+
+TEST(AHSModelTest, WaveformInterpolation) {
+  auto program = makeProgram({{0., 0.}});
+  auto &drive = program.hamiltonian.drivingFields.front();
+  drive.amplitude.time_series = ahs::TimeSeries({{0., 0.}, {4e6, 1e-6}});
+  drive.detuning.time_series = ahs::TimeSeries({{-2e6, 0.}, {2e6, 1e-6}});
+  drive.phase.time_series =
+      ahs::TimeSeries({{0., 0.}, {std::numbers::pi / 2, 5e-7}, {0., 1e-6}});
+  auto model = ahs::makeRydbergModel(program, ahs::analogDevice);
+  EXPECT_EQ(model.times, (std::vector<double>{0., 5e-7, 1e-6}));
+  auto before = matrixAt(model, 2.5e-7);
+  auto after = matrixAt(model, 7.5e-7);
+  EXPECT_NEAR(std::abs(before(0, 1) - 5e5), 0., 1e-9);
+  EXPECT_NEAR(before(1, 1).real(), 1e6, 1e-9);
+  EXPECT_NEAR(std::abs(after(0, 1) - std::complex<double>(0., -1.5e6)), 0.,
+              1e-9);
+}
+
+TEST(AHSModelTest, PreserveNanosecondTimesAndCoordinates) {
+  auto program = makeProgram({{1.234567891e-6, 0.}}, 1.234567891e6);
+  program.hamiltonian.drivingFields[0].amplitude.time_series.times = {0., 1e-9};
+  auto decoded =
+      nlohmann::json::parse(ahs::toJsonString(program)).get<ahs::Program>();
+  EXPECT_EQ(decoded.setup.ahs_register.sites, program.setup.ahs_register.sites);
+  EXPECT_EQ(decoded.hamiltonian.drivingFields[0].amplitude.time_series.times,
+            (std::vector<double>{0., 1e-9}));
+  EXPECT_EQ(decoded.hamiltonian.drivingFields[0].amplitude.time_series.values,
+            program.hamiltonian.drivingFields[0].amplitude.time_series.values);
+  nlohmann::json numeric = {{"values", {1.5, 2.0}}, {"times", {0., 1e-9}}};
+  auto series = numeric.get<ahs::TimeSeries>();
+  EXPECT_EQ(series.times, (std::vector<double>{0., 1e-9}));
+  EXPECT_EQ(series.values, (std::vector<double>{1.5, 2.0}));
+}
+
+TEST(AHSModelTest, StepTracksInteractionStrength) {
+  auto model =
+      ahs::makeRydbergModel(makeProgram({{0., 0.}, {1e-6, 0.}}), ahs::aquila);
+  EXPECT_LT(model.maxStep, 1e-9);
+  EXPECT_LE(model.maxStep * ahs::aquila.rydbergC6 / std::pow(1e-6, 6),
+            0.1000000001);
+}
+
+TEST(AHSModelTest, SamplingSiteOrderShotsAndSeed) {
+  std::vector<std::complex<double>> state(8, 0.0);
+  state[1] = 1.0;
+  auto counts = ahs::sampleStateVector(state, 37, 13);
+  EXPECT_EQ(counts.count("100"), 37);
+  EXPECT_EQ(counts.get_total_shots(), 37);
+  auto atoms =
+      ahs::sampleStateVector(state, 37, 13, ahs::ResultFormat::AtomState);
+  EXPECT_EQ(atoms.count("122"), 37);
+  EXPECT_EQ(atoms.count("111", "pre_sequence"), 37);
+  EXPECT_EQ(atoms.count("011", "post_sequence"), 37);
+  state[1] = std::sqrt(0.3);
+  state[6] = std::sqrt(0.7);
+  auto first = ahs::sampleStateVector(state, 1000, 13);
+  auto second = ahs::sampleStateVector(state, 1000, 13);
+  EXPECT_EQ(first.count("100"), second.count("100"));
+  EXPECT_EQ(first.count("011"), second.count("011"));
+  EXPECT_EQ(first.count("100") + first.count("011"), 1000);
+  EXPECT_NEAR(first.probability("100"), 0.3, 0.06);
+  EXPECT_EQ(ahs::sampleStateVector(state, 0, 13).get_total_shots(), 0);
+}
+
+TEST(AHSModelTest, UnsupportedFieldsRemainExplicit) {
+  auto program = makeProgram({{0., 0.}, {5e-6, 0.}});
+  program.setup.ahs_register.filling[1] = 0;
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::runtime_error);
+  program.setup.ahs_register.filling[1] = 1;
+  program.hamiltonian.localDetuning.emplace_back();
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::runtime_error);
+  program.hamiltonian.localDetuning.clear();
+  program.hamiltonian.drivingFields[0].phase.pattern =
+      ahs::FieldPattern(std::vector<double>{1., 0.});
+  EXPECT_THROW(ahs::makeRydbergModel(program, ahs::fresnelCan),
+               std::runtime_error);
+}
 
 TEST(RydbergHamiltonianTest, ConstructorValidInputs) {
   // Valid atom sites

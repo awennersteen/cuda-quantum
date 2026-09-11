@@ -14,7 +14,7 @@ namespace {
 // The launch path itself is covered by `targettests/analog`, which exercises it
 // from an `nvq++`-built binary with a complete runtime.
 TEST(AnalogPolicyTester, CompileTargetPreservesSourceModule) {
-  cudaq::AnalogRemoteRESTQPU qpu;
+  cudaq::AnalogRemoteRESTQPU qpu(cudaq::ahs::fresnelCan);
   auto target = qpu.getCompileTarget();
   EXPECT_FALSE(target.overrideAOTCompilation);
 }

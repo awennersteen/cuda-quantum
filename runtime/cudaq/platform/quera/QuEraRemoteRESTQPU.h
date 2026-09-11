@@ -16,7 +16,8 @@ namespace cudaq {
 /// execution of Analog Hamiltonian Programs via a REST Client.
 class QuEraRemoteRESTQPU : public AnalogRemoteRESTQPU {
 public:
-  QuEraRemoteRESTQPU() : AnalogRemoteRESTQPU() {}
+  QuEraRemoteRESTQPU()
+      : AnalogRemoteRESTQPU(ahs::aquila, ahs::ResultFormat::AtomState) {}
   QuEraRemoteRESTQPU(QuEraRemoteRESTQPU &&) = delete;
   ~QuEraRemoteRESTQPU() override;
 };

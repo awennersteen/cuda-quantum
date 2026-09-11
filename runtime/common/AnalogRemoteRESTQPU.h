@@ -8,9 +8,10 @@
 
 #pragma once
 
+#include "common/AnalogDynamicsEmulation.h"
 #include "common/BaseRemoteRESTQPU.h"
 #include "cudaq/platform/qpu_utils.h"
-#include <optional>
+#include <future>
 
 namespace cudaq {
 
@@ -18,14 +19,15 @@ namespace cudaq {
 /// Provides common functionality and implementation.
 class AnalogRemoteRESTQPU : public BaseRemoteRESTQPU {
 protected:
-  virtual cudaq::sample_result emulateProgram(const std::string &programString,
-                                              std::size_t shots,
-                                              std::size_t seed) {
-    throw std::runtime_error(
-        "Analog emulation is not supported on this target.");
-  }
+  ahs::DeviceSpecification device;
+  ahs::ResultFormat resultFormat;
 
 public:
+  explicit AnalogRemoteRESTQPU(
+      ahs::DeviceSpecification device,
+      ahs::ResultFormat format = ahs::ResultFormat::Binary)
+      : device(device), resultFormat(format) {}
+
   /// @brief Check if this is a remote target
   virtual bool isRemote() override { return !emulate; }
 
@@ -50,10 +52,6 @@ public:
       throw std::runtime_error(
           "Arbitrary kernel execution is not supported on this target.");
 
-    if (emulate)
-      throw std::runtime_error(
-          "Local emulation is not yet supported on this target.");
-
     CUDAQ_INFO("Launching remote kernel ({})", kernelName);
     std::vector<cudaq::KernelExecution> codes;
     std::string name = kernelName;
@@ -64,12 +62,23 @@ public:
     std::string strArgs(reinterpret_cast<const char *>(packed->data.data()),
                         packed->data.size());
     if (emulate) {
+#ifdef CUDAQ_ENABLE_AHS_EMULATION
+      auto specification = device;
+      if (auto it = backendConfig.find("device"); it != backendConfig.end())
+        specification = ahs::deviceSpecification(it->second);
+      if (auto it = backendConfig.find("rydberg_c6"); it != backendConfig.end())
+        specification.rydbergC6 = std::stod(it->second);
       auto seed = cudaq::get_random_seed();
-      return detail::future(
-          std::async(std::launch::async,
-                     [this, strArgs, shots = policy.options.shots, seed]() {
-                       return emulateProgram(strArgs, shots, seed);
-                     }));
+      return detail::future(std::async(
+          std::launch::async, [specification, format = resultFormat, strArgs,
+                               shots = policy.options.shots, seed]() {
+            return emulateRydbergDynamics(strArgs, shots, specification, seed,
+                                          format);
+          }));
+#else
+      throw std::runtime_error(
+          "AHS emulation requires a build with the CUDA-Q dynamics backend.");
+#endif
     }
     if (getEnvBool("DISABLE_REMOTE_SEND", false))
       return detail::future(

@@ -23,6 +23,16 @@ config:
   preprocessor-defines: ["-D CUDAQ_ANALOG_TARGET"]
 
 target-arguments:
+  - key: device
+    required: false
+    type: string
+    platform-arg: device
+    help-string: "Ideal AHS emulation specification: Aquila (default) or AnalogDevice."
+  - key: rydberg_c6
+    required: false
+    type: string
+    platform-arg: rydberg_c6
+    help-string: "Override the emulation C6/hbar coefficient in rad m^6 / s."
   - key: machine
     required: false
     type: string

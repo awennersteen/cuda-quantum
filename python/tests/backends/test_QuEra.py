@@ -70,6 +70,27 @@ def test_ahs_hello():
     evolution_result.dump()
 
 
+@pytest.mark.skipif(
+    not (cudaq.has_target("dynamics") and cudaq.num_available_gpus() > 0),
+    reason="AHS emulation requires dynamics and a CUDA GPU")
+@pytest.mark.parametrize("is_async", [False, True])
+def test_aquila_emulation_readout(is_async, monkeypatch):
+    """Preserve Aquila's native atom-state and pre/post readout registers."""
+    monkeypatch.setenv("DISABLE_REMOTE_SEND", "1")
+    cudaq.set_target("quera", emulate=True)
+    evolve = cudaq.evolve_async if is_async else cudaq.evolve
+    result = evolve(RydbergHamiltonian(atom_sites=[(0., 0.), (5.7e-6, 0.)],
+                                       amplitude=ScalarOperator.const(0.),
+                                       phase=ScalarOperator.const(0.),
+                                       delta_global=ScalarOperator.const(0.)),
+                    schedule=Schedule([0., 1e-8], ["t"]),
+                    shots_count=23)
+    result = result.get() if is_async else result
+    assert result["22"] == 23
+    assert result.get_register_counts("pre_sequence")["11"] == 23
+    assert result.get_register_counts("post_sequence")["11"] == 23
+
+
 # leave for gdb debugging
 if __name__ == "__main__":
     loc = os.path.abspath(__file__)

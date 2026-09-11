@@ -25,8 +25,6 @@ from .helpers import InitialState, InitialStateArgT, IntermediateResultSave
 from .integrator import BaseIntegrator
 from .schedule import Schedule
 
-analog_targets = ["pasqal", "quera"]
-
 
 def _taylor_series_expm(op_matrix: NDArray[numpy.complexfloating],
                         order: int = 20) -> NDArray[numpy.complexfloating]:
@@ -263,7 +261,7 @@ def evolve_single(
             f"Invalid argument `store_intermediate_results` for target {cudaq_runtime.get_target().name}."
         )
 
-    if target_name in analog_targets:
+    if isinstance(hamiltonian, RydbergHamiltonian):
         ## TODO: Convert result from `sample_result` to `evolve_result`
         return _launch_analog_hamiltonian_kernel(target_name, hamiltonian,
                                                  schedule, shots_count)
@@ -437,11 +435,7 @@ def evolve(
             DeprecationWarning)
         store_intermediate_results = IntermediateResultSave.ALL if store_intermediate_results else IntermediateResultSave.NONE
 
-    if target_name in analog_targets:
-        if not isinstance(hamiltonian, RydbergHamiltonian):
-            raise ValueError(
-                f"Invalid argument `hamiltonian` for target {target_name}. Must be `RydbergHamiltonian` operator."
-            )
+    if isinstance(hamiltonian, RydbergHamiltonian):
         if bool(dimensions):
             raise ValueError(
                 f"Unexpected argument `dimensions` for target {target_name}.")
@@ -580,7 +574,7 @@ def evolve_single_async(
             collapse_operators, observables, store_intermediate_results,
             integrator))
 
-    if target_name in analog_targets:
+    if isinstance(hamiltonian, RydbergHamiltonian):
         return _launch_analog_hamiltonian_kernel(target_name, hamiltonian,
                                                  schedule, shots_count, True)
 
@@ -731,11 +725,7 @@ def evolve_async(
             DeprecationWarning)
         store_intermediate_results = IntermediateResultSave.ALL if store_intermediate_results else IntermediateResultSave.NONE
 
-    if target_name in analog_targets:
-        if not isinstance(hamiltonian, RydbergHamiltonian):
-            raise ValueError(
-                f"Invalid argument `hamiltonian` for target {target_name}. Must be `RydbergHamiltonian` operator."
-            )
+    if isinstance(hamiltonian, RydbergHamiltonian):
         if bool(dimensions):
             raise ValueError(
                 f"Unexpected argument `dimensions` for target {target_name}.")

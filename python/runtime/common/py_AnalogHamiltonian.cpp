@@ -7,6 +7,7 @@
  ******************************************************************************/
 
 #include "py_AnalogHamiltonian.h"
+#include "common/AnalogDynamicsEmulation.h"
 #include "common/AnalogHamiltonian.h"
 #include "nlohmann/json.hpp"
 #include <nanobind/stl/optional.h>
@@ -20,6 +21,20 @@ namespace cudaq {
 
 /// @brief Binds the `cudaq::ahs` classes.
 void bindAnalogHamiltonian(nanobind::module_ &mod) {
+
+  nanobind::class_<ahs::DeviceSpecification>(mod, "DeviceSpecification")
+      .def(nanobind::init<double>(), nanobind::arg("rydberg_c6"))
+      .def_rw("rydberg_c6", &ahs::DeviceSpecification::rydbergC6);
+  mod.def("device_specification", &ahs::deviceSpecification,
+          nanobind::arg("name"));
+  mod.def(
+      "rydberg_hamiltonian",
+      [](const ahs::Program &program, const ahs::DeviceSpecification &device) {
+        return ahs::makeRydbergModel(program, device).hamiltonian;
+      },
+      nanobind::arg("program"), nanobind::arg("device"),
+      "Build H/hbar in rad/s with parameter t in seconds. "
+      "Use ground=0, Rydberg=1, and site 0 at the least significant index.");
 
   nanobind::class_<cudaq::ahs::AtomArrangement>(mod, "AtomArrangement")
       .def(nanobind::init<>())
