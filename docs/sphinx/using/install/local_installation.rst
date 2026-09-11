@@ -660,8 +660,10 @@ running on DGX Cloud:
 
 Replace `<my-custom-token>` in the command above with a custom token that you can freely choose.
 You will use this token to authenticate with JupyterLab;
-Go to the `job portal <https://bc.ngc.nvidia.com/jobs>`__, click on the job you just launched, and click on the link
-under |:spellcheck-disable:|"URL/Hostname"|:spellcheck-enable:| in Service Mapped Ports. 
+In the Base Command Platform web interface, navigate to your job (see
+`Jobs and GPU Instances <https://docs.nvidia.com/base-command-platform/user-guide/latest/index.html#jobs-and-gpu-instances>`__),
+click on the job you just launched, and click on the link
+under |:spellcheck-disable:|"URL/Hostname"|:spellcheck-enable:| in Service Mapped Ports.
 
 .. note::
 
@@ -687,7 +689,9 @@ or the `VS Code Web UI <https://vscode.dev/>`__, running on DGX Cloud:
       --ace <ace_name> --instance <instance_name> \
       --commandline 'vscode-setup tunnel --name cuda-quantum-dgx --accept-server-license-terms'
 
-Go to the `job portal <https://bc.ngc.nvidia.com/jobs>`__, click on the job you just launched, and select the "Log"
+In the Base Command Platform web interface, navigate to your job (see
+`Jobs and GPU Instances <https://docs.nvidia.com/base-command-platform/user-guide/latest/index.html#jobs-and-gpu-instances>`__),
+click on the job you just launched, and select the "Log"
 tab. Once the job is running, you should see instructions there for how to connect to the device the job is running on.
 These instructions include a link to open and the code to enter on that page; follow the instructions to authenticate. 
 Once you have authenticated, you can either 
@@ -914,6 +918,35 @@ Detailed information about supported drivers for different CUDA versions and be 
     Tegra devices (Jetson) are not supported in CUDA-Q at this time.
 
     For more information, please refer to `Binary Compatibility documentation <https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#binary-compatibility>`_.
+
+.. _dynamic-linking-gmp-mpfr:
+
+Dynamic linking to GMP and MPFR
+++++++++++++++++++++++++++++++++++++
+
+CUDA-Q binary distributions include the `GMP <https://gmplib.org/>`__ and
+`MPFR <https://www.mpfr.org/>`__ shared libraries, which are used by the
+Clifford+T rotation synthesis library. Both libraries are unmodified and are
+licensed under the GNU Lesser General Public License v3. The full license
+texts are included in the `LICENSES` folder distributed with CUDA-Q, and the
+corresponding copyright notices are listed in the `NOTICE` file.
+
+CUDA-Q links to GMP and MPFR exclusively dynamically, and the two libraries
+can be replaced with compatible versions without rebuilding CUDA-Q by
+substituting the shared library files (`libgmp.so*` and `libmpfr.so*` on
+Linux, `libgmp*.dylib` and `libmpfr*.dylib` on macOS):
+
+- Docker image and installer - the libraries are located in the `lib`
+  folder of the CUDA-Q installation directory, that is
+  `${CUDA_QUANTUM_PATH}/lib`.
+- Python wheels - the libraries are located in the `lib` folder that is
+  installed next to the `cudaq` package in your Python environment's
+  `site-packages` directory.
+
+Alternatively, when building CUDA-Q from source, you can link against your
+own GMP and MPFR builds instead of the ones built by
+`scripts/install_prerequisites.sh`. Please see :doc:`data_center_install` for more
+information.
 
 .. _post-installation:
 

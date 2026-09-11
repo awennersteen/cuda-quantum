@@ -117,6 +117,8 @@ Common
 .. doxygenstruct:: cudaq::ExecutionResult
     :members:
 
+.. doxygenclass:: cudaq::cudaq_json
+
 .. doxygenclass:: cudaq::sample_result
     :members:
 
@@ -171,8 +173,6 @@ vector of handles.
 .. doxygentypedef:: cudaq::TensorStateData
 
 .. doxygentypedef:: cudaq::state_data
-
-.. doxygenclass:: cudaq::CusvState
 
 .. doxygenclass:: nvqir::MPSSimulationState
 
@@ -339,8 +339,21 @@ Algorithms
 .. doxygenclass:: cudaq::gradients::forward_difference
     :members:
 
+.. doxygenstruct:: cudaq::dem_options
+    :members:
+
+.. doxygenstruct:: cudaq::M2DSparseMatrix
+    :members:
+
+.. doxygenstruct:: cudaq::M2OSparseMatrix
+    :members:
+
+.. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, const cudaq::noise_model *noise, const cudaq::dem_options &options, Args &&...args)
 .. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, const cudaq::noise_model *noise, Args &&...args)
 .. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, Args &&...args)
+.. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, const cudaq::noise_model *noise, const cudaq::dem_options &options, cudaq::M2DSparseMatrix &m2d_out, cudaq::M2OSparseMatrix &m2o_out, Args &&...args)
+.. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, const cudaq::noise_model *noise, cudaq::M2DSparseMatrix &m2d_out, cudaq::M2OSparseMatrix &m2o_out, Args &&...args)
+.. doxygenfunction:: cudaq::dem_from_kernel(QuantumKernel &&kernel, cudaq::M2DSparseMatrix &m2d_out, cudaq::M2OSparseMatrix &m2o_out, Args &&...args)
 
 Quantum Error Correction
 ========================
@@ -378,13 +391,25 @@ Platform
 .. doxygenclass:: cudaq::QPU
     :members:
 
+.. doxygenstruct:: cudaq::other_policies
+
+.. doxygenclass:: cudaq::DefaultQPU
+
+.. doxygenclass:: cudaq::GPUEmulatedQPU
+
 .. doxygenclass:: cudaq::BaseRemoteRESTQPU
 
-.. doxygenclass:: cudaq::AnalogRemoteRESTQPU    
+.. doxygenclass:: cudaq::RemoteRESTQPU
+
+.. doxygenclass:: cudaq::AnalogRemoteRESTQPU
 
 .. doxygenclass:: cudaq::FermioniqQPU
 
 .. doxygenclass:: cudaq::OrcaRemoteRESTQPU
+
+.. doxygenclass:: cudaq::PasqalRemoteRESTQPU
+
+.. doxygenclass:: cudaq::QuEraRemoteRESTQPU
 
 .. doxygenclass:: cudaq::quantum_platform
     :members:
@@ -420,6 +445,20 @@ Utilities
 .. doxygenfunction:: cudaq::contrib::draw(QuantumKernel &&kernel, Args&&... args)
 
 .. doxygenfunction:: cudaq::contrib::get_unitary_cmat(QuantumKernel &&kernel, Args&&... args)
+
+.. doxygenfunction:: cudaq::contrib::amplitude_encode(std::span<const double> data, std::complex<double> pad)
+.. doxygenfunction:: cudaq::contrib::amplitude_encode(std::span<const float> data, std::complex<double> pad)
+.. doxygenfunction:: cudaq::contrib::amplitude_encode(std::span<const std::complex<double>> data, std::complex<double> pad)
+.. doxygenfunction:: cudaq::contrib::amplitude_encode(std::span<const std::complex<float>> data, std::complex<double> pad)
+.. doxygenfunction:: cudaq::contrib::amplitude_encode(const state &data, std::complex<double> pad)
+
+.. doxygenenum:: cudaq::contrib::RotationAxis
+
+.. doxygenfunction:: cudaq::contrib::angular_encode(Kernel &&kernel, QuakeValue &q, QuakeValue &angles, RotationAxis rotation)
+
+.. doxygenfunction:: cudaq::contrib::angular_encode(Kernel &&kernel, QuakeValue &q, std::span<const double> angles, RotationAxis rotation)
+
+.. doxygenfunction:: cudaq::contrib::angular_encode(Kernel &&kernel, QuakeValue &q, const std::vector<double> &angles, RotationAxis rotation)
     
 Namespaces 
 ===========

@@ -12,12 +12,11 @@
 #include "common/RuntimeTarget.h"
 #include "helpers/MQPUUtils.h"
 #include "cudaq/Target/TargetConfigYaml.h"
+#include "cudaq/platform/qpu_utils.h"
 #include "cudaq/platform/quantum_platform.h"
 #include "cudaq/runtime/logger/logger.h"
 #include "cudaq/simulators.h"
-#include "llvm/Support/Base64.h"
 #include <filesystem>
-#include <fstream>
 
 // Note: LLVM_INSTANTIATE_REGISTRY(cudaq::QPU::RegistryType) is intentionally
 // NOT placed here. The canonical QPU registry instance lives in
@@ -34,51 +33,28 @@ public:
   ~MultiQPUQuantumPlatform() {
     // Make sure that we clean up the client QPUs first before cleaning up the
     // remote servers.
-    platformQPUs.clear();
+    clearQPUs();
   }
 
-  MultiQPUQuantumPlatform() {
-    int nDevices = cudaq::getCudaDeviceCount();
-    // Skipped if CUDA-Q was built with CUDA but no devices present at
-    // runtime.
-    if (nDevices > 0) {
-      const char *envVal = std::getenv("CUDAQ_MQPU_NGPUS");
-      if (envVal != nullptr) {
-        int specifiedNDevices = 0;
-        try {
-          specifiedNDevices = std::stoi(envVal);
-        } catch (...) {
-          throw std::runtime_error("Invalid CUDAQ_MQPU_NGPUS environment "
-                                   "variable, must be integer.");
-        }
-
-        if (specifiedNDevices < nDevices)
-          nDevices = specifiedNDevices;
-      }
-
-      if (nDevices == 0)
-        throw std::runtime_error("No GPUs available to instantiate platform.");
-
-      // Add a QPU for each GPU.
-      for (int i = 0; i < nDevices; i++) {
-        platformQPUs.emplace_back(std::make_unique<cudaq::DefaultQPU>());
-        platformQPUs.back()->setId(i);
-      }
-    }
-  }
+  MultiQPUQuantumPlatform() { populateDefaultQPUs(); }
 
   bool supports_task_distribution() const override { return true; }
 
   void beginExecution() override {
-    // Set the current CUDA device for this thread based on the QPU ID in the
-    // execution context.
+    // Only set the CUDA device when GPU-backed QPUs are active.
+    // Non-GPU platforms (e.g. ORCA) that replace the default QPUs
+    // via setTargetBackend do not require a CUDA device assignment.
     auto qid = cudaq::getCurrentQpuId();
-    cudaq::setCudaDevice(qid);
+    int nDevices = cudaq::getCudaDeviceCount();
+    if (nDevices > 0)
+      cudaq::setCudaDevice(qid);
     // Base implementation of beginExecution will be called after this.
     cudaq::quantum_platform::beginExecution();
   }
 
 private:
+  void populateDefaultQPUs();
+
   static std::string getTargetName(const std::string &description) {
     // Target name is the first one in the target config string
     // or the whole string if this is the only config.
@@ -94,18 +70,19 @@ private:
     std::filesystem::path cudaqLibPath{cudaq::getCUDAQLibraryPath()};
     auto platformPath = cudaqLibPath.parent_path().parent_path() / "targets";
     std::string targetConfigFileName = targetName + std::string(".yml");
-    auto configFilePath = platformPath / targetConfigFileName;
+    const auto explicitConfigPath =
+        cudaq::detail::getBackendConfigOption(description, "__yml_path");
+    auto configFilePath = explicitConfigPath
+                              ? std::filesystem::path(*explicitConfigPath)
+                              : platformPath / targetConfigFileName;
     CUDAQ_INFO("Config file path for target {} = {}", targetName,
                configFilePath.string());
     // Don't try to load something that doesn't exist.
-    if (!std::filesystem::exists(configFilePath))
+    if (!explicitConfigPath && !std::filesystem::exists(configFilePath))
       return "";
-    std::ifstream configFile(configFilePath.string());
-    std::string configContents((std::istreambuf_iterator<char>(configFile)),
-                               std::istreambuf_iterator<char>());
-    cudaq::config::TargetConfig config;
-    llvm::yaml::Input Input(configContents.c_str());
-    Input >> config;
+    auto config = cudaq::config::loadTargetConfig(configFilePath);
+    cudaq::detail::loadTargetPluginLibraries(targetName, configFilePath,
+                                             config);
 
     if (config.BackendConfig.has_value() &&
         !config.BackendConfig->PlatformQpu.empty()) {
@@ -120,28 +97,7 @@ private:
     // "<prefix>;<option>".
     // Note: This expects an exact match of the prefix and the option value is
     // the next one.
-    auto splitParts = cudaq::split(str, ';');
-    if (splitParts.empty())
-      return "";
-    for (std::size_t i = 0; i < splitParts.size() - 1; ++i) {
-      if (splitParts[i] == prefix) {
-        CUDAQ_DBG(
-            "Retrieved option '{}' for the key '{}' from input string '{}'",
-            splitParts[i + 1], prefix, str);
-        if (splitParts[i + 1].starts_with("base64_")) {
-          splitParts[i + 1].erase(0, 7); // erase "base64_"
-          std::vector<char> decoded_vec;
-          if (auto err = llvm::decodeBase64(splitParts[i + 1], decoded_vec))
-            throw std::runtime_error("DecodeBase64 error");
-          std::string decodedStr(decoded_vec.data(), decoded_vec.size());
-          CUDAQ_INFO("Decoded {} parameter from '{}' to '{}'", splitParts[i],
-                     splitParts[i + 1], decodedStr);
-          return decodedStr;
-        }
-        return splitParts[i + 1];
-      }
-    }
-    return "";
+    return cudaq::detail::getBackendConfigOption(str, prefix).value_or("");
   }
 
   static std::string formatUrl(const std::string &url) {
@@ -164,14 +120,14 @@ private:
                         qpuSubType));
       if (qpuSubType == "orca") {
         auto urls = cudaq::split(getOption(description, "url"), ',');
-        platformQPUs.clear();
+        clearQPUs();
         for (std::size_t qId = 0; qId < urls.size(); ++qId) {
           // Populate the information and add the QPUs
-          platformQPUs.emplace_back(cudaq::registry::get<cudaq::QPU>("orca"));
-          platformQPUs.back()->setId(qId);
+          auto &qpu = addQPU(cudaq::registry::get<cudaq::QPU>("orca"));
+          qpu.setId(qId);
           const std::string configStr =
               fmt::format("orca;url;{}", formatUrl(urls[qId]));
-          platformQPUs.back()->setTargetBackend(configStr);
+          qpu.setTargetBackend(configStr);
         }
         return;
       } else {
@@ -180,15 +136,48 @@ private:
                         "target config. Currently only 'orca' is supported.",
                         qpuSubType));
       }
-    } else if (platformQPUs.empty()) {
-      // No QPU (GPU simulator nor specified platform QPU) was able to be
-      // initialized, so we can't run.
-      throw std::runtime_error(
-          "No platform QPU implementations available. Please check your "
-          "installation and target configuration.");
+    } else {
+      populateDefaultQPUs();
+
+      if (num_qpus() == 0) {
+        // No QPU (GPU simulator nor specified platform QPU) was able to be
+        // initialized, so we can't run.
+        throw std::runtime_error(
+            "No platform QPU implementations available. Please check your "
+            "installation and target configuration.");
+      }
     }
   }
 };
+
+void MultiQPUQuantumPlatform::populateDefaultQPUs() {
+  clearQPUs();
+  int nDevices = cudaq::getCudaDeviceCount();
+  // Skipped if CUDA-Q was built with CUDA but no devices present at
+  // runtime.
+  if (nDevices > 0) {
+    const char *envVal = std::getenv("CUDAQ_MQPU_NGPUS");
+    if (envVal != nullptr) {
+      int specifiedNDevices = 0;
+      try {
+        specifiedNDevices = std::stoi(envVal);
+      } catch (...) {
+        throw std::runtime_error("Invalid CUDAQ_MQPU_NGPUS environment "
+                                 "variable, must be integer.");
+      }
+
+      if (specifiedNDevices < nDevices)
+        nDevices = specifiedNDevices;
+    }
+
+    if (nDevices == 0)
+      throw std::runtime_error("No GPUs available to instantiate platform.");
+
+    // Add a QPU for each GPU.
+    for (int i = 0; i < nDevices; i++)
+      addQPU(std::make_unique<cudaq::DefaultQPU>()).setId(i);
+  }
+}
 } // namespace
 
 CUDAQ_REGISTER_PLATFORM(MultiQPUQuantumPlatform, mqpu)

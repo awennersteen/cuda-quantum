@@ -18,6 +18,7 @@
 #include "runtime/common/py_SampleResult.h"
 #include "runtime/cudaq/algorithms/py_draw.h"
 #include "runtime/cudaq/algorithms/py_evolve.h"
+#include "runtime/cudaq/algorithms/py_observe.h"
 #include "runtime/cudaq/algorithms/py_observe_async.h"
 #include "runtime/cudaq/algorithms/py_optimizer.h"
 #include "runtime/cudaq/algorithms/py_resource_count.h"
@@ -38,9 +39,11 @@
 #include "runtime/cudaq/operators/py_scalar_op.h"
 #include "runtime/cudaq/operators/py_spin_op.h"
 #include "runtime/cudaq/operators/py_super_op.h"
+#include "runtime/cudaq/platform/PyRuntimeEndpoint.h"
 #include "runtime/cudaq/platform/py_alt_launch_kernel.h"
 #include "runtime/cudaq/qis/py_execution_manager.h"
 #include "runtime/cudaq/qis/py_pauli_word.h"
+#include "runtime/cudaq/target/py_compile_target.h"
 #include "runtime/cudaq/target/py_runtime_target.h"
 #include "runtime/cudaq/target/py_testing_utils.h"
 #include "runtime/cudaq/trace/py_trace.h"
@@ -53,6 +56,7 @@
 #include "cudaq/runtime/logger/logger.h"
 #include "mlir/Bindings/Python/NanobindAdaptors.h"
 #include "mlir/CAPI/Pass.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include <nanobind/stl/complex.h>
@@ -67,12 +71,13 @@ using namespace cudaq;
 
 static std::unique_ptr<LinkedLibraryHolder> holder;
 
-extern "C" void cudaq_ensure_default_launcher_linked(void);
+namespace cudaq_internal::compiler {
+void installPythonMLIRHooks();
+} // namespace cudaq_internal::compiler
 
 NB_MODULE(_quakeDialects, m) {
-  // Ensure the TU that registers PythonLauncher ("default") is linked so
-  // kernel launches work without an explicit set_target().
-  cudaq_ensure_default_launcher_linked();
+  cudaq_internal::compiler::installPythonMLIRHooks();
+
   holder = std::make_unique<LinkedLibraryHolder>();
 
   bindRegisterDialects(m);
@@ -109,6 +114,7 @@ NB_MODULE(_quakeDialects, m) {
       nanobind::arg("target") = nanobind::none(),
       "Initialize the CUDA-Q environment.");
 
+  bindCompileTarget(cudaqRuntime);
   bindRuntimeTarget(cudaqRuntime, *holder.get());
   bindMeasureCounts(cudaqRuntime);
   bindResources(cudaqRuntime);
@@ -138,12 +144,14 @@ NB_MODULE(_quakeDialects, m) {
   bindCountResources(cudaqRuntime);
   bindDemFromKernel(cudaqRuntime);
   bindPySample(cudaqRuntime);
+  bindPyObserve(cudaqRuntime);
   bindSampleAsync(cudaqRuntime);
   bindSamplePTSBE(cudaqRuntime);
   bindObserveAsync(cudaqRuntime);
   bindAltLaunchKernel(cudaqRuntime, [holderPtr = holder.get()]() {
     return python::getTransportLayer(holderPtr);
   });
+  bindRuntimeEndpoint(cudaqRuntime);
   bindTestUtils(cudaqRuntime, *holder.get());
   bindCustomOpRegistry(cudaqRuntime);
   bindTrace(cudaqRuntime);
@@ -308,6 +316,11 @@ Using ``mpi4py``:
 When using ``mpi4py``, keep the communicator object alive while CUDA-Q uses it.)doc",
       nanobind::arg("commPtr"));
 
+  // The ORCA submodule binds cudaq::orca::sample directly, so it exists only
+  // when the ORCA backend was built (OPENSSL_FOUND). Previously these
+  // sources were compiled into this extension unconditionally, which both
+  // ignored that build flag and shadowed libcudaq-orca-qpu at runtime.
+#ifdef CUDAQ_ORCA_BACKEND_ENABLED
   auto orcaSubmodule = cudaqRuntime.def_submodule("orca");
   orcaSubmodule.def(
       "sample",
@@ -351,6 +364,7 @@ When using ``mpi4py``, keep the communicator object alive while CUDA-Q uses it.)
       nanobind::arg("input_state"), nanobind::arg("loop_lengths"),
       nanobind::arg("bs_angles"), nanobind::arg("n_samples") = 10000,
       nanobind::arg("qpu_id") = 0);
+#endif
 
   auto photonicsSubmodule = cudaqRuntime.def_submodule("photonics");
   photonicsSubmodule.def(
@@ -393,17 +407,41 @@ When using ``mpi4py``, keep the communicator object alive while CUDA-Q uses it.)
   cudaqRuntime.def(
       "runPassManager",
       [](MlirPassManager pm, MlirModule mod) {
+        auto module = unwrap(mod);
+        // Collect error diagnostics so the Python exception carries the reason
+        // the pipeline failed. Returning success consumes the diagnostic, which
+        // keeps the default handler from also printing it to `stderr`.
+        std::string diagnostics;
+        llvm::raw_string_ostream os(diagnostics);
+        mlir::ScopedDiagnosticHandler collect(
+            module.getContext(), [&](mlir::Diagnostic &diag) {
+              if (diag.getSeverity() != mlir::DiagnosticSeverity::Error)
+                return mlir::failure();
+              os << diag.getLocation() << ": error: " << diag << '\n';
+              for (auto &note : diag.getNotes())
+                os << note.getLocation() << ": note: " << note << '\n';
+              return mlir::success();
+            });
         if (mlir::failed(cudaq_internal::compiler::runPassManager(
-                *unwrap(pm), unwrap(mod).getOperation())))
-          throw std::runtime_error("pass pipeline failed");
+                *unwrap(pm), module.getOperation())))
+          throw std::runtime_error("pass pipeline failed\n" + diagnostics);
+        // A pass can emit an error and still report success, so the collected
+        // text would otherwise be dropped. Print it rather than lose it.
+        if (!diagnostics.empty())
+          llvm::errs() << diagnostics;
       },
       "Run an MLIR PassManager on a Module via the runtime helper that "
       "installs TracePassInstrumentation and releases the GIL. Used by "
       "cudaq.mlir.passmanager.PassManager.run() so every Python-side pass "
       "run is traced through the same chokepoint as the JIT path.");
-  cudaqRuntime.def("isTerminator", [](MlirOperation op) {
-    return unwrap(op)->hasTrait<mlir::OpTrait::IsTerminator>();
-  });
+  cudaqRuntime.def(
+      "blockHasTerminator",
+      [](MlirBlock block) {
+        return !mlirOperationIsNull(mlirBlockGetTerminator(block));
+      },
+      "Return `true` if the block ends with an operation carrying the "
+      "`IsTerminator` trait.",
+      nanobind::arg("block"));
 
   auto ahsSubmodule = cudaqRuntime.def_submodule("ahs");
   bindAnalogHamiltonian(ahsSubmodule);

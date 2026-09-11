@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "common/CompileOptions.h"
 #include "common/Future.h"
 #include "common/SampleResult.h"
 #include "cudaq/algorithms/sample/options.h"
@@ -35,10 +36,6 @@ struct sample_policy {
   /// @brief The name of the kernel being executed.
   std::string kernelName;
 
-  /// @brief Flag to indicate that a warning about named measurement registers
-  /// in sampling context has already been emitted.
-  bool warnedNamedMeasurements = false;
-
   /// @brief A vector containing information about how to reorder the global
   /// register after execution. Empty means no reordering.
   mutable std::vector<std::size_t> reorderIdx;
@@ -51,6 +48,8 @@ struct sample_policy {
   friend sample_result
   finalize_simulation_circuit_impl(nvqir::CircuitSimulator &sim,
                                    const sample_policy &policy);
+
+  friend CompileOptions get_compile_options_impl(const sample_policy &);
 };
 
 using async_sample_policy = async_policy_wrapper<sample_policy>;

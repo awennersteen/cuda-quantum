@@ -11,9 +11,9 @@ CUDA-Q Realtime, including connectivity to a
 
 - A host system with NVIDIA GPU and ConnectX-7/BlueField NIC.
 
-- A FPGA, programmed with `HSB` IP and connected to the NIC.
+- An FPGA, programmed with `HSB` IP and connected to the NIC.
 
-> **_NOTE:_** We recommended using NVIDIA ConnectX-7 as prior generations
+> **_NOTE:_** We recommend using NVIDIA ConnectX-7 as prior generations
 may not have all the required capabilities.
 
 ### Software Components
@@ -26,7 +26,7 @@ may not have all the required capabilities.
 with `gpunetio` support.
 
 > **_NOTE:_** `DOCA` is required to run the end-to-end validation with FPGA
-using the builtin `HSB` support of CUDA-Q realtime.
+using the built-in `HSB` support of CUDA-Q Realtime.
 
 <!--- -->
 
@@ -52,6 +52,17 @@ Please refer to this [section](#using-docker) for instructions.
 
     <!--- -->
 
+    > **_NOTE:_** To install to a different location (which does not require
+    > `sudo`), pass `--installpath` to the installer, e.g.,
+    >
+    > ```bash
+    > ./install_cuda_quantum_realtime_cu13.arm64 --accept -- --installpath $HOME/.cudaq_realtime
+    > ```
+    >
+    > The paths used in the remaining steps then need to be adjusted accordingly.
+
+    <!--- -->
+
     > **_NOTE:_** After the installation, please follow the instructed
     > post-installation step to set the environment variable, e.g.,
     >
@@ -59,13 +70,14 @@ Please refer to this [section](#using-docker) for instructions.
     >  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/nvidia/cudaq/realtime/lib
     > ```
 
-2. Load `HSB` IP bit-file to the FPGA
+2. Program the FPGA with `HSB`
 
-    The bit-file for supported FPGA vendors
-    can be found [here](https://edge.urm.nvidia.com/artifactory/sw-holoscan-thirdparty-generic-local/QEC/HSB-2.6.0-EA/).
+    See the [CUDA-Q Realtime installation docs](https://nvidia.github.io/cuda-quantum/latest/using/realtime/installation.html#realtime-hsb-fpga-artifacts)
+    for the reusable `nv_hsb_ip` RTL source, the RFSoC PYNQ source example,
+    and the pre-built RFSoC bit-file.
 
-    > **_NOTE:_** Please make sure set up the [host system](https://docs.nvidia.com/holoscan/sensor-bridge/latest/setup.html)
-    and the `HSB` FPGA device [IP address](https://docs.nvidia.com/holoscan/sensor-bridge/latest/architecture.html#datachannel-enumeration-and-ip-address-configuration)
+    > **_NOTE:_** Please make sure to set up the [host system](https://docs.nvidia.com/holoscan/sensor-bridge/getting-started/host-setup)
+    and the `HSB` FPGA device [IP address](https://docs.nvidia.com/holoscan/sensor-bridge/applications/architecture#datachannel-enumeration-and-ip-address-configuration)
     (if not already done so).
 
 3. Run the validation script
@@ -186,14 +198,14 @@ Using the Integrated Logic Analyzer (`ILA`) timestamp when the FPGA receives
 the response from the GPU, we can compute the round-trip latency,
 i.e., the elapsed time from the timestamp in the header to the `ILA` receive timestamp.
 
-Please refer to `hololink_fpga_playback.cpp` code in the [CUDA-Q repository](https://github.com/NVIDIA/cuda-quantum)
+Please refer to `hsb_fpga_playback.cpp` code in the [CUDA-Q repository](https://github.com/NVIDIA/cuda-quantum)
 for a sample of data generation tools.
 
 ## Troubleshooting
 
 <!-- markdownlint-disable MD013 -->
 
-### Error "`error while loading shared libraries: libcudaq-realtime-bridge-hololink.so cannot open shared object file: No such file or directory`"
+### Error "`error while loading shared libraries: libcudaq-realtime-bridge-gpu-roce.so cannot open shared object file: No such file or directory`"
 
 This can be resolved by following the post-installation step in the [setup](#setup) section to set the `LD_LIBRARY_PATH`.
 

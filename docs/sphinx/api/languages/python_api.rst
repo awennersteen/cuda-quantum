@@ -71,8 +71,18 @@ Kernel Execution
 .. autofunction:: cudaq::vqe
 .. autofunction:: cudaq::draw
 .. autofunction:: cudaq::translate
+.. autofunction:: cudaq::estimate
 .. autofunction:: cudaq::estimate_resources
 .. autofunction:: cudaq::dem_from_kernel
+
+``cudaq.contrib``
+=============================
+
+Quantum Embeddings
+-----------------------------
+
+.. autofunction:: cudaq.contrib.amplitude_encode
+.. autofunction:: cudaq.contrib.angular_encode
 
 Quantum Error Correction
 =============================
@@ -288,6 +298,9 @@ Data Types
 .. autoclass:: cudaq::AsyncSampleResult
     :members:
 
+.. autoclass:: cudaq.DEMResult
+    :members:
+
 .. autoclass:: cudaq::ObserveResult
     :members:
 
@@ -307,6 +320,9 @@ Data Types
     :members:
 
 .. autoclass:: cudaq::Resources
+    :members:
+
+.. autoclass:: cudaq::EstimateResult
     :members:
 
 Optimizers

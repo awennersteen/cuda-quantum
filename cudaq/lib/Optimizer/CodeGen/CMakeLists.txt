@@ -21,6 +21,7 @@ add_cudaq_library(OptCodeGen
   ConvertToQIR.cpp
   ConvertToQIRAPI.cpp
   DelayMeasurements.cpp
+  EraseCGEvince.cpp
   OptUtils.cpp
   Passes.cpp
   Pipelines.cpp
@@ -43,7 +44,6 @@ add_cudaq_library(OptCodeGen
     OptTransformsPassIncGen
     QECDialect
     QuakeDialect
-    cudaq-qir-verifier
     
   LINK_LIBS PUBLIC
     CCDialect
@@ -69,4 +69,9 @@ add_cudaq_library(OptCodeGen
 
     # Translation
     MLIRTargetLLVMIRExport
+
+  LINK_COMPONENTS
+    Passes
 )
+
+check_registered_mlir_lib(OptCodeGen)

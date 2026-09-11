@@ -31,7 +31,6 @@ void bindExecutionContext(nanobind::module_ &mod) {
            nanobind::arg("name"), nanobind::arg("shots"),
            nanobind::arg("qpu_id") = 0)
       .def_rw("kernelName", &cudaq::ExecutionContext::kernelName)
-      .def_ro("result", &cudaq::ExecutionContext::result)
       .def_rw("asyncExec", &cudaq::ExecutionContext::asyncExec)
       .def_ro("asyncResult", &cudaq::ExecutionContext::asyncResult)
       .def_rw("hasConditionalsOnMeasureResults",
@@ -42,25 +41,11 @@ void bindExecutionContext(nanobind::module_ &mod) {
               &cudaq::ExecutionContext::numberTrajectories)
       .def_rw("explicitMeasurements",
               &cudaq::ExecutionContext::explicitMeasurements)
-      .def_rw("allowJitEngineCaching",
-              &cudaq::ExecutionContext::allowCompiledModuleCaching)
-      .def_rw("useParametricJit", &cudaq::ExecutionContext::useParametricJit)
-      .def_ro("invocationResultBuffer",
-              &cudaq::ExecutionContext::invocationResultBuffer)
-      .def("unset_jit_engine",
-           [&](cudaq::ExecutionContext &execCtx) {
-             if (execCtx.cachedCompiledModule) {
-               execCtx.cachedCompiledModule = std::nullopt;
-               execCtx.allowCompiledModuleCaching = false;
-             }
-           })
       .def("setSpinOperator",
            [](cudaq::ExecutionContext &ctx, cudaq::spin_op &spin) {
              ctx.spin = spin;
              assert(cudaq::spin_op::canonicalize(spin) == spin);
            })
-      .def("getExpectationValue",
-           [](cudaq::ExecutionContext &ctx) { return ctx.expectationValue; })
       // ----- Context management using with blocks -----
       // Unlike in C++, we do not support nested execution contexts in Python.
       .def(

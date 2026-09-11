@@ -11,6 +11,10 @@ import sys
 
 import pytest
 
+_API_CHANGE_NOTICE = (
+    "The CUDA-Q `sample` and `observe` algorithmic primitives will change in a "
+    "future release.")
+
 
 def _run_in_subprocess(code):
     """Run Python code in a fresh process so lazy import state is clean."""
@@ -22,6 +26,18 @@ def _run_in_subprocess(code):
     return result.stdout
 
 
+def test_import_emits_api_change_notice_once():
+    result = subprocess.run(
+        [sys.executable, '-W', 'always', '-c', 'import cudaq\nimport cudaq'],
+        capture_output=True,
+        text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert f"FutureWarning: {_API_CHANGE_NOTICE}" in result.stderr
+    assert result.stderr.count(_API_CHANGE_NOTICE) == 1
+    assert _API_CHANGE_NOTICE not in result.stdout
+
+
 def test_lazy_modules_not_eagerly_imported():
     """Verify that dynamics, kernels, and domains are not imported at
     `import cudaq` time."""
@@ -31,7 +47,8 @@ import sys
 
 for mod in ['cudaq.dynamics', 'cudaq.dynamics.schedule',
             'cudaq.dynamics.integrators', 'cudaq.kernels.uccsd',
-            'cudaq.domains.chemistry', 'cudaq.dbg.ast']:
+            'cudaq.domains.chemistry', 'cudaq.dbg.ast',
+            'cudaq.contrib.encoding']:
     assert mod not in sys.modules, f'{mod} was eagerly imported'
 """)
 
@@ -46,6 +63,8 @@ assert callable(cudaq.evolve)
 assert callable(cudaq.evolve_async)
 assert cudaq.Schedule is not None
 assert cudaq.IntermediateResultSave is not None
+assert callable(cudaq.amplitude_encode)
+assert callable(cudaq.angular_encode)
 
 # _LAZY_SUBMODULES
 assert hasattr(cudaq.chemistry, '__name__')
@@ -77,9 +96,24 @@ import cudaq
 
 d = dir(cudaq)
 for name in ['evolve', 'evolve_async', 'Schedule',
-             'IntermediateResultSave', 'chemistry', 'uccsd', 'ast',
+             'IntermediateResultSave', 'amplitude_encode', 'angular_encode',
+             'chemistry', 'uccsd', 'ast',
              'RungeKuttaIntegrator', 'ScipyZvodeIntegrator']:
     assert name in d, f'{name} missing from dir(cudaq)'
+""")
+
+
+def test_contrib_encoding_not_eagerly_imported():
+    """Verify that encoding helpers are not imported at `import cudaq.contrib`
+    time."""
+    _run_in_subprocess("""
+import cudaq.contrib
+import sys
+
+assert 'cudaq.contrib.encoding' not in sys.modules
+assert callable(cudaq.contrib.amplitude_encode)
+assert callable(cudaq.contrib.angular_encode)
+assert 'cudaq.contrib.encoding' in sys.modules
 """)
 
 

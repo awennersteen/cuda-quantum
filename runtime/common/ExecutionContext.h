@@ -15,6 +15,7 @@
 #include "Trace.h"
 #include "cudaq/algorithms/optimizer.h"
 #include "cudaq/operators.h"
+#include <exception>
 #include <optional>
 #include <string_view>
 
@@ -50,12 +51,6 @@ public:
 
   /// @brief An optional spin operator
   std::optional<cudaq::spin_op> spin;
-
-  /// @brief Measurement counts for a CUDA-Q kernel invocation
-  sample_result result;
-
-  /// @brief A computed expectation value
-  std::optional<double> expectationValue = std::nullopt;
 
   /// @brief An optimization result
   std::optional<cudaq::optimization_result> optResult = std::nullopt;
@@ -111,11 +106,6 @@ public:
   /// @brief The ID of the QPU that this execution context is running on.
   std::size_t qpuId = 0;
 
-  /// @brief A buffer containing the return value of a kernel invocation.
-  /// Note: this is only needed for invocation not able to return a
-  /// `sample_result`.
-  std::vector<char> invocationResultBuffer;
-
   /// @brief The number of trajectories to be used for an expectation
   /// calculation on simulation backends that support trajectory simulation.
   std::optional<std::size_t> numberTrajectories = std::nullopt;
@@ -124,45 +114,34 @@ public:
   /// order.
   bool explicitMeasurements = false;
 
-  /// @brief Flag to indicate that a warning about named measurement registers
-  /// in sampling context has already been emitted.
-  bool warnedNamedMeasurements = false;
-
-  /// @brief Probability of occurrence of each error mechanism (column) in
-  /// Measurement Syndrome Matrix (0-1 range).
-  std::optional<std::vector<double>> msm_probabilities;
-
-  /// @brief Error mechanism ID. From a probability perspective, each error
-  /// mechanism ID is independent of all other error mechanism ID. For all
-  /// errors with the *same* ID, only one of them can happen. That is - the
-  /// errors containing the same ID are correlated with each other.
-  std::optional<std::vector<std::size_t>> msm_prob_err_id;
-
-  /// @brief The number of rows and columns of a Measurement Syndrome Matrix.
-  /// Note: Measurement Syndrome Matrix is defined in
-  /// https://arxiv.org/pdf/2407.13826.
-  std::optional<std::pair<std::size_t, std::size_t>> msm_dimensions;
-
-  bool allowCompiledModuleCaching = false;
-
-  bool useParametricJit = false;
-
   /// @cond HIDDEN_MEMBERS
   /// @brief Pointer to the execution manager for the current execution context,
   /// if it exists.
   ExecutionManager *executionManager = nullptr;
 
-  /// @brief For performance, a launcher may cache the JIT execution engine and
-  /// use it for multiple discrete calls.
-  std::optional<cudaq::CompiledModule> cachedCompiledModule = std::nullopt;
-
   /// @brief Dispatcher towards the policy specific launch.
   std::function<void(const AnyModule &module, const KernelArgs &args)>
       executeKernelApi;
 
-  /// @brief Slot for the detector error model, as `.dem` text.
-  std::string dem_text;
   /// @endcond
+
+  /// @brief Captures an exception raised by the kernel while it runs on a
+  /// backend that cannot unwind C++ exceptions through JIT-compiled kernel
+  /// frames (notably macOS arm64, where the ORC-JIT'd kernel frame carries no
+  /// unwind info the system unwinder can use, so a throw escaping into it calls
+  /// `std::terminate`). The simulator stores the error here instead of throwing
+  /// across the JIT boundary, and the launcher re-throws it from a C++ frame
+  /// above that boundary once the kernel returns. Callers therefore observe the
+  /// same exception they would on platforms where direct unwinding works.
+  std::exception_ptr deferredKernelException;
+
+  /// @brief True while a JIT/AOT-compiled kernel frame is executing on this
+  /// thread. The simulator only defers exceptions into
+  /// `deferredKernelException` while this is set. Outside the kernel frame (for
+  /// example, gate application during sample/observe finalization) there is no
+  /// JIT frame for an exception to unwind through, so it is thrown directly,
+  /// preserving the behavior callers see on all platforms.
+  bool inKernelLaunch = false;
 };
 
 //===----------------------------------------------------------------------===//
@@ -189,6 +168,11 @@ bool isLastBatch();
 /// @brief Get the ID of the current QPU.
 std::size_t getCurrentQpuId();
 
+/// @brief Re-throw an exception the kernel deferred during execution, if any.
+/// Call immediately after invoking a compiled kernel, from the C++ frame above
+/// the JIT/AOT boundary. No-op when nothing was deferred.
+void rethrowDeferredKernelException();
+
 namespace detail {
 /// Set the execution context for the current thread.
 ///
@@ -205,8 +189,8 @@ void resetExecutionContext();
 /// @brief Execute the given function within the given policy and execution
 /// context.
 template <typename Policy, typename Callable, typename... Args>
-auto with_policy_and_ctx(Policy &policy, ExecutionContext &ctx, Callable &&f,
-                         Args &&...args)
+auto with_policy_and_ctx(const Policy &policy, ExecutionContext &ctx,
+                         Callable &&f, Args &&...args)
     -> std::invoke_result_t<Callable, Args...> {
 
   // Save the outer execution context (if any) so we can restore it after.

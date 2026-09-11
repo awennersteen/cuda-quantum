@@ -75,11 +75,40 @@ struct AssignWireIndicesPass
     if (!func->hasAttr(cudaq::entryPointAttrName))
       return;
 
-    // TODO: someday we may want to allow calls to non-quantum functions
+    // Only bail out if there are calls to quantum kernels; non-quantum calls
+    // are allowed through.
     if (cudaq::opt::hasCallOp(func)) {
-      func.emitRemark(
-          "AssignWireIndicesPass function has calls, pass will not be run.");
-      return;
+      auto module = func->getParentOfType<ModuleOp>();
+      bool hasQuantumCall = false;
+      func.walk([&](func::CallOp call) {
+        if (auto callee = module.lookupSymbol<func::FuncOp>(call.getCallee()))
+          if (callee->hasAttr(cudaq::kernelAttrName))
+            hasQuantumCall = true;
+      });
+      // Wires cross a function boundary when the callee has a body. A
+      // bodyless declaration threads its wires straight back out, so indices
+      // remain locally assignable. Treat an unknown callee as having a body.
+      auto calleeIsDefined = [](Operation *from,
+                                std::optional<SymbolRefAttr> callee) {
+        if (!callee)
+          return true;
+        auto fn =
+            SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(from, *callee);
+        return !fn || !fn.isExternal();
+      };
+      func.walk([&](cudaq::quake::CallByRefOp call) {
+        if (calleeIsDefined(call, call.getCalleeAttr()))
+          hasQuantumCall = true;
+      });
+      func.walk([&](cudaq::quake::ApplyOp apply) {
+        if (calleeIsDefined(apply, apply.getCallee()))
+          hasQuantumCall = true;
+      });
+      if (hasQuantumCall) {
+        func.emitRemark(
+            "AssignWireIndicesPass function has calls, pass will not be run.");
+        return;
+      }
     }
 
     auto *ctx = &getContext();

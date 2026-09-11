@@ -9,6 +9,8 @@
 #pragma once
 
 #include "OrcaExecutor.h"
+#include "common/CompileTarget.h"
+#include "common/CompiledModule.h"
 #include "cudaq/platform/qpu.h"
 #include "cudaq/utils/cudaq_utils.h"
 #include "cudaq/utils/owning_ptr.h"
@@ -49,6 +51,9 @@ protected:
   /// configuration.
   std::map<std::string, std::string> backendConfig;
 
+  [[nodiscard]] detail::future launchKernelCommon(const CompiledModule &module,
+                                                  KernelArgs args);
+
 public:
   /// @brief The constructor
   OrcaRemoteRESTQPU() : QPU() {
@@ -74,9 +79,6 @@ public:
   /// @brief Return true if the current backend is a simulator
   bool isSimulator() override { return emulate; }
 
-  /// @brief Return true if the current backend supports explicit measurements
-  bool supportsExplicitMeasurements() override { return false; }
-
   /// @brief Provide the number of shots
   void setShots(int _nShots) override { nShots = _nShots; }
 
@@ -90,24 +92,22 @@ public:
   /// specific target backend configuration file.
   void setTargetBackend(const std::string &backend) override;
 
-  [[nodiscard]] KernelThunkResultType
-  launchKernelCommon(const std::string &kernelName, KernelThunkType kernelFunc,
-                     void *args);
+  using QPU::getCompileTarget;
+  using QPU::launchKernel;
+
+  CompileTarget
+  getCompileTarget(bool skipPipelineSubstitutions = false) override {
+    return {.overrideAOTCompilation = false};
+  }
 
   /// @brief Launch the kernel. Handle all pertinent modifications for the
   /// execution context.
-  [[nodiscard]] KernelThunkResultType
-  unifiedLaunchModule(const AnyModule &module, KernelArgs args) override {
-    if (!std::holds_alternative<SourceModule>(module))
-      throw std::runtime_error(
-          "OrcaRemoteRESTQPU does not support pre-compiled module launch.");
+  [[nodiscard]] orca::sample_policy::result_type
+  launchKernel(const orca::sample_policy &policy, const CompiledModule &module,
+               KernelArgs args) override;
 
-    const auto &src = std::get<SourceModule>(module);
-    auto rawFn = src.getFunctionPtr();
-    KernelThunkType kernelFunc = rawFn ? rawFn->getFn() : nullptr;
-    auto packed = args.getPacked();
-    void *argData = packed ? packed->data.data() : nullptr;
-    return launchKernelCommon(src.getName(), kernelFunc, argData);
-  }
+  [[nodiscard]] orca::async_sample_policy::result_type
+  launchKernel(const orca::async_sample_policy &policy,
+               const CompiledModule &module, KernelArgs args) override;
 };
 } // namespace cudaq

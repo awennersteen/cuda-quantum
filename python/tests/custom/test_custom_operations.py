@@ -74,7 +74,8 @@ def test_cz_gate():
         "custom_cz", np.array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0,
                                -1]))
 
-    @cudaq.kernel
+    # Not all of the allocated qubits are used. Disable DQE on this test.
+    @cudaq.kernel(disable_quantum_optimization=True)
     def ctrl_z_kernel():
         qubits = cudaq.qvector(5)
         controls = cudaq.qvector(2)

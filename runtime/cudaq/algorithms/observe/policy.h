@@ -8,8 +8,11 @@
 
 #pragma once
 
+#include "common/CompileOptions.h"
+#include "common/Future.h"
 #include "common/ObserveResult.h"
 #include "cudaq/algorithms/observe/options.h"
+#include "cudaq/operators.h"
 
 namespace cudaq {
 
@@ -27,10 +30,28 @@ struct observe_policy {
   /// Observe options.
   observe_options options;
 
+  /// @brief The name of the kernel being executed.
+  std::string kernelName;
+
+  /// @brief The spin operator being observed.
+  spin_op spin;
+
+  /// @brief A vector containing information about how to reorder the global
+  /// register after execution. Empty means no reordering.
+  mutable std::vector<std::size_t> reorderIdx;
+
+  mutable const noise_model *noiseModel = nullptr;
+
+  mutable bool canHandleObserve = false;
+
   friend observe_result
   finalize_execution_manager_impl(ExecutionManager &mgr,
                                   const observe_policy &policy,
                                   ExecutionContext &ctx);
+
+  friend CompileOptions get_compile_options_impl(const observe_policy &);
 };
+
+using async_observe_policy = async_policy_wrapper<observe_policy>;
 
 } // namespace cudaq

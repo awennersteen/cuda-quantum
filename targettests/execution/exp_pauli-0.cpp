@@ -16,23 +16,22 @@
 // RUN: if %oqc_avail; then nvq++ -fkernel-exec-kind=2 -target oqc        --emulate %s -o %t && %t | FileCheck %s ; fi
 // RUN: if %anyon_avail; then nvq++ -fkernel-exec-kind=2 -target anyon      --emulate %s -o %t && %t | FileCheck %s ; fi
 // RUN: if %iqm_avail; then nvq++ -fkernel-exec-kind=2 -target iqm        --emulate %s -o %t && IQM_QPU_QA=%iqm_tests_dir/Crystal_5.txt  %t | FileCheck %s ; fi
-// RUN: if %qci_avail; then nvq++ -fkernel-exec-kind=2 -target qci --emulate %s -o %t && %t | FileCheck %s; fi
 // clang-format on
 
 #include <cudaq.h>
 #include <iostream>
 
 __qpu__ void test() {
-    cudaq::qvector q(2);
-    cudaq::exp_pauli(1.0, q, "XX");
+  cudaq::qvector q(2);
+  cudaq::exp_pauli(1.0, q, "XX");
 }
 
 __qpu__ void test_param(cudaq::pauli_word w) {
-    cudaq::qvector q(2);
-    cudaq::exp_pauli(1.0, q, w);
+  cudaq::qvector q(2);
+  cudaq::exp_pauli(1.0, q, w);
 }
 
-void printCounts(cudaq::sample_result& result) {
+void printCounts(cudaq::sample_result &result) {
   std::vector<std::string> values{};
   for (auto &&[bits, counts] : result) {
     values.push_back(bits);

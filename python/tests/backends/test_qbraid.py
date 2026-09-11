@@ -15,11 +15,9 @@ import pytest
 from cudaq import spin
 from network_utils import check_server_connection
 
-try:
-    from utils.mock_qpu.qbraid import startServer
-except ImportError:
-    print("Mock qpu not available, skipping qBraid tests.")
-    pytest.skip("Mock qpu not available.", allow_module_level=True)
+from utils.mock_qpu.qbraid import startServer
+
+pytestmark = pytest.mark.xdist_group("qbraid_mock")
 
 port = 62454
 
@@ -27,7 +25,7 @@ port = 62454
 TEST_MACHINE = "qbraid:qbraid:sim:qir-sv"
 TEST_API_KEY = "00000000000000000000000000000000"
 
-# The qbraid mock server in utils/mock_qpu/qbraid/__init__.py doesn't simulate
+# The qbraid mock server in python/tests/utils/mock_qpu/qbraid/__init__.py doesn't simulate
 # quantum mechanics - it only inspects the QASM for `h` and `measure` ops and
 # generates random outcomes for qubits with H. It does NOT model entanglement
 # via CNOT. Assertions below reflect the mock's behavior, not physical truth.
@@ -174,6 +172,28 @@ def test_qbraid_machine_alternative_device():
     kernel.h(qubit)
     kernel.mz(qubit)
 
+    counts = cudaq.sample(kernel)
+    assert len(counts) >= 1
+
+
+def test_qbraid_rejects_analog_device():
+    """An analog/AHS device (paradigm != gate_model) is rejected up front.
+
+    The helper queries device metadata when the target is configured and
+    refuses a non-gate-model device, surfacing an actionable error at
+    set_target time instead of an opaque downstream job failure.
+    """
+    with pytest.raises(RuntimeError, match="gate-model"):
+        _set_qbraid_target(machine="aws:quera:qpu:aquila")
+
+
+def test_qbraid_accepts_gate_model_device():
+    """A gate-model device passes the paradigm check and executes normally."""
+    _set_qbraid_target(machine="aws:aws:sim:sv1")
+    kernel = cudaq.make_kernel()
+    qubit = kernel.qalloc()
+    kernel.h(qubit)
+    kernel.mz(qubit)
     counts = cudaq.sample(kernel)
     assert len(counts) >= 1
 

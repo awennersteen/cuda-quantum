@@ -6,6 +6,7 @@
  * the terms of the Apache License 2.0 which accompanies this distribution.    *
  ******************************************************************************/
 
+#include "common/ExecutionContext.h"
 #include "common/FmtCore.h"
 #include "nvqir/CircuitSimulator.h"
 #include "stim.h"
@@ -30,10 +31,12 @@ struct StimNoiseType {
   int num_targets = 1;
 };
 
+using StimSimulatorBase = nvqir::CircuitSimulatorBase<double>;
+
 /// @brief The StimCircuitSimulator implements the CircuitSimulator
 /// base class to provide a simulator delegating to the Stim library from
 /// https://github.com/quantumlib/Stim.
-class StimCircuitSimulator : public nvqir::CircuitSimulatorBase<double> {
+class StimCircuitSimulator : public StimSimulatorBase {
 protected:
   // Follow Stim naming convention (W) for bit width (required for templates).
   static constexpr std::size_t W = stim::MAX_BITWORD_WIDTH;
@@ -52,7 +55,7 @@ protected:
   std::unique_ptr<stim::FrameSimulator<W>> sampleSim;
 
   /// @brief Error counter for MSM generation. This is only used for "msm" and
-  /// "msm_size" execution contexts.
+  /// "msm_size" policies.
   std::size_t msm_err_count = 0;
 
   /// @brief Error ID counter for MSM generation. This is only used for "msm"
@@ -62,6 +65,15 @@ protected:
   /// @brief Whether or not the execution context name is "msm" (value is cached
   /// for speed)
   bool is_msm_mode = false;
+
+  std::optional<cudaq::msm_dimensions> activeMsmDimensions;
+
+  /// @brief Probabilities of each error mechanism, accumulated during MSM
+  /// execution. Only used for "msm" policy.
+  std::vector<double> msmProbabilities;
+
+  /// @brief Error IDs corresponding to each entry in @c msmProbabilities.
+  std::vector<std::size_t> msmProbErrId;
 
   /// @brief Accumulated Stim circuit covering gates, measurements, noise,
   /// detectors, and observables. Reset alongside `num_measurements` in
@@ -170,21 +182,18 @@ protected:
          executionContext->name == "ptsbe-sample") &&
         !executionContext->hasConditionalsOnMeasureResults)
       batch_size = executionContext->shots;
-    else if (executionContext && executionContext->name == "msm")
-      batch_size =
-          executionContext->msm_dimensions.value_or(std::make_pair(1, 1))
-              .second;
+    else if (is_msm_mode)
+      batch_size = activeMsmDimensions.value_or(std::make_pair(1, 1)).second;
     return batch_size;
   }
 
   /// @brief Return the number of rows and columns needed for a Parity Check
   /// Matrix
-  std::optional<std::pair<std::size_t, std::size_t>>
-  generateMSMSize() override {
+  std::optional<std::pair<std::size_t, std::size_t>> generateMSMSize() {
     return std::make_pair(num_measurements, msm_err_count);
   }
 
-  void generateMSM() override {
+  cudaq::msm_result generateMSM() {
     const auto num_cols = getBatchSize();
     stim::simd_bit_table<W> msmSample = sampleSim->m_record.storage;
     // Disabled because it's too verbose, but left here as comments for
@@ -204,31 +213,163 @@ protected:
       counts[aShot]++;
       sequentialData.push_back(std::move(aShot));
     }
-    ExecutionResult result(counts);
-    result.sequentialData = std::move(sequentialData);
-    getExecutionContext()->result = result;
+    ExecutionResult execResult(counts);
+    execResult.sequentialData = std::move(sequentialData);
+
+    cudaq::msm_result result;
+    result.samples = std::move(execResult);
+    result.probabilities = std::move(msmProbabilities);
+    result.probability_error_ids = std::move(msmProbErrId);
+    return result;
   }
 
-  /// @brief Compute the detector error model from the accumulated
-  /// `recordedCircuit` and return it as `.dem` text.
-  std::string generateDem() override {
-    stim::DetectorErrorModel dem =
+  /// @brief Populate the measurement matrices from @p flat and return them.
+  /// Rows = detectors/observables, cols = measurements; non-zero entries are 1.
+  ///
+  /// @p flat must be the already-flattened circuit (caller owns flattening so
+  /// compute_stats() is not called a second time here).
+  ///
+  /// Duplicate measurement targets within a single DETECTOR or
+  /// OBSERVABLE_INCLUDE instruction are collapsed modulo 2 (GF(2) XOR): an
+  /// index that appears an even number of times cancels out.
+  std::pair<cudaq::M2DSparseMatrix, cudaq::M2OSparseMatrix>
+  computeMeasurementMatrices(std::size_t num_measurements,
+                             std::size_t num_detectors,
+                             std::size_t num_observables,
+                             const stim::Circuit &flat) {
+    cudaq::M2DSparseMatrix m2d;
+    cudaq::M2OSparseMatrix m2o;
+    m2d.num_measurements = num_measurements;
+    m2o.num_measurements = num_measurements;
+    m2d.rows.resize(num_detectors);
+    m2o.rows.resize(num_observables);
+
+    // XOR-dedup: remove indices that appear an even number of times in @p row.
+    auto xorDedup = [](std::vector<std::size_t> &row) {
+      std::sort(row.begin(), row.end());
+      std::vector<std::size_t> out;
+      for (std::size_t i = 0; i < row.size();) {
+        std::size_t j = i;
+        while (j < row.size() && row[j] == row[i])
+          ++j;
+        if ((j - i) % 2 == 1) // odd count → survives XOR
+          out.push_back(row[i]);
+        i = j;
+      }
+      row = std::move(out);
+    };
+
+    std::size_t meas_so_far = 0;
+    std::size_t det_so_far = 0;
+    flat.for_each_operation([&](const stim::CircuitInstruction &op) {
+      auto n = op.count_measurement_results();
+      if (n > 0) {
+        meas_so_far += n;
+      } else if (op.gate_type == stim::GateType::DETECTOR) {
+        auto &row = m2d.rows[det_so_far];
+        for (const auto &t : op.targets) {
+          if (t.is_measurement_record_target()) {
+            auto lookback = static_cast<std::size_t>(-t.rec_offset());
+            if (lookback > meas_so_far)
+              throw std::runtime_error(
+                  "dem_from_kernel: DETECTOR record target rec[-" +
+                  std::to_string(lookback) +
+                  "] references a measurement before the circuit start");
+            row.push_back(meas_so_far - lookback);
+          }
+        }
+        xorDedup(row);
+        ++det_so_far;
+      } else if (op.gate_type == stim::GateType::OBSERVABLE_INCLUDE) {
+        auto obs_idx = static_cast<std::size_t>(op.args[0]);
+        auto &row = m2o.rows[obs_idx];
+        for (const auto &t : op.targets) {
+          if (t.is_measurement_record_target()) {
+            auto lookback = static_cast<std::size_t>(-t.rec_offset());
+            if (lookback > meas_so_far)
+              throw std::runtime_error(
+                  "dem_from_kernel: OBSERVABLE_INCLUDE record target rec[-" +
+                  std::to_string(lookback) +
+                  "] references a measurement before the circuit start");
+            row.push_back(meas_so_far - lookback);
+          }
+        }
+        xorDedup(row);
+      }
+    });
+    return {std::move(m2d), std::move(m2o)};
+  }
+
+  /// @brief Finalize the execution context, ensuring the simulator is left in a
+  /// clean state even if finalization throws.
+  void finalizeExecutionContext(const cudaq::other_policies &policy,
+                                cudaq::ExecutionContext &context) override {
+    try {
+      StimSimulatorBase::finalizeExecutionContext(policy, context);
+    } catch (...) {
+      endExecution();
+      throw;
+    }
+  }
+
+  cudaq::dem_result
+  finalizeExecutionContext(const cudaq::dem_policy &policy) override {
+    finalizeExecutionContextImpl();
+
+    const auto &options = policy.options;
+    std::string dem =
         stim::ErrorAnalyzer::circuit_to_detector_error_model(
-            recordedCircuit,
-            /*decompose_errors=*/false,
-            /*fold_loops=*/false,
-            /*allow_gauge_detectors=*/false,
-            /*approximate_disjoint_errors_threshold=*/0,
-            /*ignore_decomposition_failures=*/false,
-            /*block_decomposition_from_introducing_remnant_edges=*/false);
-    return dem.str();
+            recordedCircuit, options.decompose_errors, options.fold_loops,
+            options.allow_gauge_detectors,
+            options.approximate_disjoint_errors_threshold,
+            options.ignore_decomposition_failures,
+            options.block_decomposition_from_introducing_remnant_edges)
+            .str();
+
+    // Always populate counts — `repr` and downstream helpers depend on them
+    // even when the caller opts out of the full matrices.
+    auto stats = recordedCircuit.compute_stats();
+
+    cudaq::M2DSparseMatrix m2d;
+    cudaq::M2OSparseMatrix m2o;
+    bool matrices_computed = false;
+    if (options.return_measurement_matrices) {
+      auto flat = recordedCircuit.flattened();
+      auto [cm2d, cm2o] = computeMeasurementMatrices(
+          stats.num_measurements, stats.num_detectors, stats.num_observables,
+          flat);
+      m2d = std::move(cm2d);
+      m2o = std::move(cm2o);
+      matrices_computed = true;
+    }
+    return cudaq::dem_result(std::move(dem), std::move(m2d), std::move(m2o),
+                             stats.num_detectors, stats.num_observables,
+                             stats.num_measurements, matrices_computed);
+  }
+
+  cudaq::msm_dimensions
+  finalizeExecutionContext(const cudaq::msm_size_policy &policy) override {
+    if (nQubitsAllocated == 0)
+      return {};
+    finalizeExecutionContextImpl();
+    auto dimensions = generateMSMSize();
+    if (!dimensions)
+      throw std::runtime_error("MSM size analysis not supported.");
+    return *dimensions;
+  }
+
+  cudaq::msm_result
+  finalizeExecutionContext(const cudaq::msm_policy &policy) override {
+    if (nQubitsAllocated == 0)
+      return {};
+    finalizeExecutionContextImpl();
+    return generateMSM();
   }
 
   /// @brief Override the default sized allocation of qubits
   /// here to be a bit more efficient than the default implementation
   void addQubitsToState(std::size_t qubitCount,
                         const void *stateDataIn = nullptr) override {
-    auto executionContext = getExecutionContext();
     if (stateDataIn)
       throw std::runtime_error("The Stim simulator does not support "
                                "initialization of qubits from state data.");
@@ -243,18 +384,16 @@ protected:
           std::mt19937_64(randomEngine), /*num_qubits=*/0, /*sign_bias=*/+0);
     }
     if (!sampleSim) {
-      is_msm_mode = executionContext && executionContext->name == "msm";
       std::size_t anticipated_num_measurements = 0;
       std::size_t num_msm_cols = 0;
       if (is_msm_mode) {
-        auto dims =
-            executionContext->msm_dimensions.value_or(std::make_pair(1, 1));
+        auto dims = activeMsmDimensions.value_or(std::make_pair(1, 1));
         anticipated_num_measurements = dims.first;
         num_msm_cols = dims.second;
-        executionContext->msm_probabilities.emplace();
-        executionContext->msm_probabilities->reserve(num_msm_cols);
-        executionContext->msm_prob_err_id.emplace();
-        executionContext->msm_prob_err_id->reserve(num_msm_cols);
+        msmProbabilities.clear();
+        msmProbabilities.reserve(num_msm_cols);
+        msmProbErrId.clear();
+        msmProbErrId.reserve(num_msm_cols);
       }
 
       // If possible, provide a non-empty stim::CircuitStats in order to avoid
@@ -293,6 +432,9 @@ protected:
     msm_err_count = 0;
     msm_id_counter = 0;
     is_msm_mode = false;
+    activeMsmDimensions = std::nullopt;
+    msmProbabilities.clear();
+    msmProbErrId.clear();
     recordedCircuit.clear();
   }
 
@@ -369,10 +511,20 @@ protected:
     CUDAQ_INFO("[stim] apply kraus channel {}, is_msm_mode = {}",
                channel.get_type_name(), is_msm_mode);
 
-    auto executionContext = getExecutionContext();
-
     // If we have a valid operation, apply it
     if (auto res = isValidStimNoiseChannel(channel)) {
+      // A channel acting on `num_targets` qubits is broadcast independently
+      // across each consecutive group of `num_targets` qubits, matching Stim's
+      // multi-target semantics.
+      const std::size_t num_targets = res->num_targets;
+      if (num_targets == 0 || qubits.size() % num_targets != 0)
+        throw std::runtime_error(fmt::format(
+            "Stim noise channel '{}' expects a positive multiple of {} target "
+            "qubit(s) but was applied to {} qubit(s).",
+            res->stim_name, num_targets, qubits.size()));
+      const std::size_t num_groups = qubits.size() / num_targets;
+      const std::size_t num_mechanisms = res->params.size();
+
       if (is_msm_mode) {
         // If the noise operation is the first operation done to a qubit, the
         // x_table and z_table may not be sized for the qubits. If that is the
@@ -386,23 +538,26 @@ protected:
         // Apply the errors found in res directly into sampleSim, as if they
         // definitely happened, 1 mechanism at a time. (For example, a
         // depolarization channel will manifest as 3 possible error mechanisms:
-        // an X error, Y error, or Z error.)
-        std::size_t num_mechanisms = res->params.size();
-        std::size_t flip_ix = 0;
-        for (std::size_t m = 0; m < num_mechanisms; m++) {
-          // In this mode, the "shot" is an alias for the MSM error count.
-          std::size_t shot = msm_err_count;
-          if (msm_err_count < sampleSim->batch_size) {
-            for (std::size_t t = 0; t < res->num_targets; t++, flip_ix++) {
-              sampleSim->x_table[qubits[t]][shot] ^= res->flips_x[flip_ix];
-              sampleSim->z_table[qubits[t]][shot] ^= res->flips_z[flip_ix];
+        // an X error, Y error, or Z error.) Each broadcast group is an
+        // independent error source with its own error id.
+        for (std::size_t g = 0; g < num_groups; g++) {
+          for (std::size_t m = 0; m < num_mechanisms; m++) {
+            // In this mode, the "shot" is an alias for the MSM error count.
+            std::size_t shot = msm_err_count;
+            if (msm_err_count < sampleSim->batch_size) {
+              for (std::size_t t = 0; t < num_targets; t++) {
+                auto q = qubits[g * num_targets + t];
+                auto flip_ix = m * num_targets + t;
+                sampleSim->x_table[q][shot] ^= res->flips_x[flip_ix];
+                sampleSim->z_table[q][shot] ^= res->flips_z[flip_ix];
+              }
+              msmProbabilities.push_back(res->params[m]);
+              msmProbErrId.push_back(msm_id_counter);
+              msm_err_count++;
             }
-            executionContext->msm_probabilities->push_back(res->params[m]);
-            executionContext->msm_prob_err_id->push_back(msm_id_counter);
-            msm_err_count++;
           }
+          msm_id_counter++;
         }
-        msm_id_counter++;
       } else {
         stim::Circuit noiseOps;
         noiseOps.safe_append_u(res.value().stim_name, qubits,
@@ -413,8 +568,8 @@ protected:
         recordedCircuit.safe_append_u(res.value().stim_name, qubits,
                                       channel.parameters);
 
-        // Increment the error count by the number of mechanisms
-        msm_err_count += res->params.size();
+        // Count one mechanism per group.
+        msm_err_count += num_groups * num_mechanisms;
       }
     }
   }
@@ -562,6 +717,7 @@ protected:
   QubitOrdering getQubitOrdering() const override { return QubitOrdering::msb; }
 
 public:
+  using StimSimulatorBase::configureExecutionContext;
   StimCircuitSimulator() : randomEngine(std::random_device{}()) {
     // Populate the correct name so it is printed correctly during
     // deconstructor.
@@ -745,6 +901,21 @@ public:
   createStateFromData(const cudaq::state_data &) override {
     throw std::runtime_error(
         "Simulation data not available for the stim simulator backend.");
+  }
+
+  void configureExecutionContext(const cudaq::msm_policy &policy) override {
+    StimSimulatorBase::configureExecutionContextImpl(policy);
+    is_msm_mode = true;
+    activeMsmDimensions = policy.dimensions;
+  }
+
+  void
+  configureExecutionContext(const cudaq::msm_size_policy &policy) override {
+    StimSimulatorBase::configureExecutionContextImpl(policy);
+  }
+
+  void configureExecutionContext(const cudaq::dem_policy &policy) override {
+    StimSimulatorBase::configureExecutionContextImpl(policy);
   }
 
   NVQIR_SIMULATOR_CLONE_IMPL(StimCircuitSimulator)

@@ -8,8 +8,8 @@
 
 #include "CUDAQTestUtils.h"
 #include "StimCircuitSimulator.cpp"
+#include "common/AnalysisScope.h"
 #include "common/ExecutionContext.h"
-#include "nvqir/AnalysisScope.h"
 #include "nvqir/QIRTypes.h"
 #include <cstdint>
 #include <gtest/gtest.h>
@@ -54,10 +54,11 @@ extern "C" void __quantum__qis__pair_detectors(Result **prev_results,
                                                std::int64_t prev_count,
                                                Result **curr_results,
                                                std::int64_t curr_count);
+extern "C" void __quantum__rt__clear_result_maps();
 
 /// @brief Encode an `int64_t` chronological measurement index as the
 /// `Result*` bit pattern the QIR ABI delivers to the QEC runtime adapter.
-/// Mirrors the lowering pattern in `cudaq/test/Transforms/qir_api_qec.qke`.
+/// Mirrors the lowering pattern in `cudaq/test/Optimizer/qir_api_qec.qke`.
 static Result *measureIndexAsResultPtr(std::int64_t i) {
   return reinterpret_cast<Result *>(static_cast<std::intptr_t>(i));
 }
@@ -221,10 +222,13 @@ CUDAQ_TEST(StimQECTester, AdapterRejectsNegativeObservableIndex) {
 }
 
 // End-to-end coverage of the NVQIR adapter
-CUDAQ_TEST(StimQECTester, AdapterDispatchesToActiveSimulator) {
+CUDAQ_TEST(StimQECTester, AdapterAcceptsRawChronologicalIndices) {
+  // Clear stale handle-to-index maps left by earlier tests in this process
+  // so the raw chronological indices below are not remapped.
+  __quantum__rt__clear_result_maps();
   StimCircuitSimulatorTester sim;
   sim.setRandomSeed(42);
-  nvqir::AnalysisScope scope{"stim_qec_adapter_test", sim, {}};
+  cudaq::detail::AnalysisScope scope{"stim_qec_adapter_test", sim, {}};
 
   auto q0 = sim.allocateQubit();
   auto q1 = sim.allocateQubit();

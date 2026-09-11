@@ -14,7 +14,7 @@ import numpy as np
 import os
 import pytest
 
-skipIfPasqalNotInstalled = pytest.mark.skipif(
+pytestmark = pytest.mark.skipif(
     not (cudaq.has_target("pasqal")),
     reason='Could not find `pasqal` in installation')
 skipIfPasqalEmulationUnavailable = pytest.mark.skipif(
@@ -33,7 +33,6 @@ def set_up_target():
     cudaq.reset_target()
 
 
-@skipIfPasqalNotInstalled
 def test_JSON_payload():
     input = {
         "setup": {
@@ -70,8 +69,8 @@ def test_JSON_payload():
         }
     }
     # NOTE: For internal testing only, not user-level API; this does not return results
-    cudaq.cudaq_runtime.pyAltLaunchAnalogKernel("__analog_hamiltonian_kernel__",
-                                                json.dumps(input))
+    cudaq.cudaq_runtime.launch_analog_kernel("__analog_hamiltonian_kernel__",
+                                             json.dumps(input), 100)
 
 
 @skipIfPasqalEmulationUnavailable

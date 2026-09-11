@@ -10,9 +10,9 @@
 /// @brief Phase 1 GPU-less HSB bridge using CpuRoceTransceiver +
 ///        CUDAQ_DISPATCH_HOST_CALL.
 ///
-/// Replaces hololink_bridge for the CPU-data-path test case.  No
+/// Replaces gpu_roce_bridge for the CPU-data-path test case.  No
 /// libhololink dependency, no GPU, no DOCA — only libibverbs + libcudaq-
-/// realtime + libcudaq-realtime-cpu-transport.
+/// realtime + libcudaq-realtime-cpu-roce-transport.
 ///
 /// The FPGA-side rendezvous (telling the FPGA our QP number and rkey) is
 /// out-of-band: this binary prints them to stdout and the orchestration
@@ -27,7 +27,7 @@
 #include "cudaq/realtime/cpu_transport/roce_wrapper.h"
 #include "cudaq/realtime/daemon/dispatcher/cudaq_realtime.h"
 #include "cudaq/realtime/daemon/dispatcher/dispatch_kernel_launch.h"
-#include "cudaq/realtime/daemon/dispatcher/host_dispatcher.h"
+#include "cudaq/realtime/daemon/dispatcher/graph_launch_engine.h"
 
 #include <atomic>
 #include <chrono>
@@ -47,7 +47,7 @@ setup_rpc_increment_function_table_host(cudaq_function_entry_t *h_entries);
 // Provided by init_rpc_increment_function_table_host.cpp via internal
 // linkage; we need the same handler for unified mode's dispatch callback,
 // so re-declare its C ABI here.
-extern "C" void rpc_increment_handler_host(void *slot_host,
+extern "C" void rpc_increment_handler_host(const void *rx_slot, void *tx_slot,
                                            std::size_t slot_size);
 
 namespace {
@@ -132,9 +132,9 @@ void on_signal(int) { g_shutdown.store(1, std::memory_order_release); }
 
 // ============================================================================
 // Unified-mode dispatch callback.  Forwards directly to the host increment
-// handler.  The dispatcher copy that the three-thread path does in
-// handle_host_call is done explicitly here (rx_slot -> tx_slot) since the
-// unified loop hands us both sides.
+// handler.  The two-pointer handler reads the request from rx_slot and writes
+// the response into tx_slot, so no copy is needed here (the unified loop hands
+// us both sides, matching the handler's RX/TX-pointer ABI).
 // ============================================================================
 std::size_t unified_dispatch_cb(void * /*context*/, const void *rx_slot,
                                 void *tx_slot, std::size_t slot_size) {
@@ -143,8 +143,7 @@ std::size_t unified_dispatch_cb(void * /*context*/, const void *rx_slot,
   const auto *header = static_cast<const RPCHeader *>(rx_slot);
   if (header->magic != RPC_MAGIC_REQUEST)
     return 0; // drop without sending — silent for non-RPC noise
-  std::memcpy(tx_slot, rx_slot, slot_size);
-  rpc_increment_handler_host(tx_slot, slot_size);
+  rpc_increment_handler_host(rx_slot, tx_slot, slot_size);
   // Response length: response header + payload bytes (use full slot to
   // match the three-thread / FPGA TX framing, since the FPGA expects a
   // fixed-size payload per slot).
@@ -192,7 +191,7 @@ int main(int argc, char **argv) {
 
   // ------------------------------------------------------------------------
   // [1] Create CpuRoceTransceiver.
-  //     3-thread: cudaq_host_dispatcher_loop consumes RX flags / produces TX
+  //     3-thread: cudaq_host_ring_dispatch_loop consumes RX flags / produces TX
   //               flags; transceiver's RX+TX threads do the wire I/O.
   //     unified:  transceiver's unified_loop does RX + dispatch + TX inline.
   //     forward:  transceiver's forward_loop echoes every RX slot back to
@@ -204,7 +203,7 @@ int main(int argc, char **argv) {
       cfg.device.c_str(), /*ib_port=*/1, cfg.remote_qp, frame_size,
       cfg.page_size, cfg.num_pages, cfg.peer_ip.c_str(), cfg.forward ? 1 : 0,
       rx_only, tx_only, cfg.unified ? 1 : 0,
-      /*tx_mode=*/CPU_ROCE_TX_MODE_SEND_FOR_FPGA,
+      /*tx_mode=*/CPU_ROCE_TX_MODE_RDMA_SEND,
       /*peer_rx_base_addr=*/0, /*peer_rx_rkey=*/0);
   if (!xcvr) {
     std::cerr << "ERROR: cpu_roce_create_transceiver failed" << std::endl;
@@ -235,8 +234,10 @@ int main(int argc, char **argv) {
   // [3] Mode-specific wiring.
   // ------------------------------------------------------------------------
   std::thread dispatcher_thread;
-  std::atomic<int> dispatcher_shutdown{0};
-  cudaq_host_dispatch_loop_ctx_t dctx{};
+  volatile int dispatcher_shutdown = 0;
+  cudaq_ringbuffer_t ring{};
+  cudaq_function_table_t table{};
+  cudaq_dispatcher_config_t dcfg{};
   uint64_t packets_dispatched = 0;
   if (cfg.forward) {
     // Forward: the transceiver's forward_loop echoes every RX slot back
@@ -244,50 +245,48 @@ int main(int argc, char **argv) {
     // determines the bytes-on-wire.
   } else if (cfg.unified) {
     // Unified: install the dispatch closure; the transceiver's unified
-    // thread will invoke it.  No cudaq_host_dispatcher_loop needed.
+    // thread will invoke it.  No library dispatch loop needed.
     cpu_roce_set_unified_dispatch(xcvr, &unified_dispatch_cb,
                                   /*context=*/nullptr);
   } else {
-    // 3-thread layout: spawn cudaq_host_dispatcher_loop on a dedicated
+    // 3-thread layout: spawn cudaq_host_ring_dispatch_loop on a dedicated
     // thread.  It busy-polls rx_flags_host (the transceiver's RX thread
     // publishes them), invokes our HOST_CALL handler synchronously, and
-    // publishes tx_flags_host (the transceiver's TX thread consumes
-    // them).  Worker-pool fields are zero/null because HOST_CALL bypasses
-    // the worker pool; skip_stream_sweep prevents the dispatcher from
-    // poking workers that don't exist.
-    dctx.ringbuffer.rx_flags_host = reinterpret_cast<volatile uint64_t *>(
+    // publishes tx_flags_host (the transceiver's TX thread consumes them).
+    // A HOST_CALL-only table needs no GRAPH_LAUNCH engine, so engine == NULL
+    // (the loop touches no graph workers).
+    ring.rx_flags_host = reinterpret_cast<volatile uint64_t *>(
         cpu_roce_get_rx_ring_flag_addr(xcvr));
-    dctx.ringbuffer.tx_flags_host = reinterpret_cast<volatile uint64_t *>(
+    ring.tx_flags_host = reinterpret_cast<volatile uint64_t *>(
         cpu_roce_get_tx_ring_flag_addr(xcvr));
-    dctx.ringbuffer.rx_data_host =
+    ring.rx_data_host =
         reinterpret_cast<uint8_t *>(cpu_roce_get_rx_ring_data_addr(xcvr));
-    dctx.ringbuffer.tx_data_host =
+    ring.tx_data_host =
         reinterpret_cast<uint8_t *>(cpu_roce_get_tx_ring_data_addr(xcvr));
-    dctx.ringbuffer.rx_stride_sz = cfg.page_size;
-    dctx.ringbuffer.tx_stride_sz = cfg.page_size;
-    dctx.config.num_slots = cfg.num_pages;
-    dctx.config.slot_size = static_cast<uint32_t>(cfg.page_size);
-    dctx.config.dispatch_path = CUDAQ_DISPATCH_PATH_HOST;
-    dctx.config.dispatch_mode = CUDAQ_DISPATCH_HOST_CALL;
-    dctx.config.skip_tx_markers = 1; // we own the TX path; sentinel pattern
-                                     // (used to avoid Hololink TX kernel
-                                     // confusion) is irrelevant here.
-    dctx.function_table.entries = h_entries;
-    dctx.function_table.count = 1;
-    dctx.shutdown_flag = &dispatcher_shutdown;
-    dctx.stats_counter = &packets_dispatched;
-    dctx.skip_stream_sweep = true; // no graph workers, no streams to sweep
+    ring.rx_stride_sz = cfg.page_size;
+    ring.tx_stride_sz = cfg.page_size;
+    dcfg.num_slots = cfg.num_pages;
+    dcfg.slot_size = static_cast<uint32_t>(cfg.page_size);
+    dcfg.dispatch_path = CUDAQ_DISPATCH_PATH_HOST;
+    dcfg.dispatch_mode = CUDAQ_DISPATCH_HOST_CALL;
+    dcfg.skip_tx_markers = 1; // we own the TX path; sentinel pattern
+                              // (used to avoid GpuRoceTransceiver TX kernel
+                              // confusion) is irrelevant here.
+    table.entries = h_entries;
+    table.count = 1;
 
-    dispatcher_thread =
-        std::thread([&dctx]() { cudaq_host_dispatcher_loop(&dctx); });
+    dispatcher_thread = std::thread([&]() {
+      cudaq_host_ring_dispatch_loop(&ring, &table, &dcfg, /*engine=*/nullptr,
+                                    &dispatcher_shutdown, &packets_dispatched);
+    });
   }
 
   // ------------------------------------------------------------------------
   // [4] Print rendezvous info for the orchestration script.
   // ------------------------------------------------------------------------
-  // NOTE: output format MUST match hololink_bridge_common.h exactly —
+  // NOTE: output format MUST match gpu_roce_bridge_common.h exactly —
   // "  KEY: VALUE" with a single space after the colon — because the
-  // orchestration script (hsb_test_cpu.sh, mirrored from hololink_test.sh)
+  // orchestration script (hsb_test_cpu.sh, mirrored from gpu_roce_test.sh)
   // uses strict regexes like 'QP Number: 0x\K...' to parse it.
   std::cout << "\n=== Bridge Ready ===" << std::endl;
   std::cout << "  QP Number: 0x" << std::hex << our_qp << std::dec << std::endl;
@@ -325,7 +324,8 @@ int main(int argc, char **argv) {
   // Only the 3-thread mode runs a separate host-dispatcher thread.
   const bool runs_dispatcher = !cfg.unified && !cfg.forward;
   if (runs_dispatcher) {
-    dispatcher_shutdown.store(1, std::memory_order_release);
+    dispatcher_shutdown = 1;
+    __sync_synchronize();
     if (dispatcher_thread.joinable())
       dispatcher_thread.join();
   }

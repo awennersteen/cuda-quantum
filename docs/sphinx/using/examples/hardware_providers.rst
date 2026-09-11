@@ -175,6 +175,24 @@ argument is supplied by QRMI at runtime. Local emulation examples are shown in
       :language: cpp
 
 
+.. _qbraid-examples:
+
+qBraid
+==================================
+
+The following code illustrates how to run kernels on qBraid's backends.
+
+.. tab:: Python
+
+   .. literalinclude:: ../../targets/python/qbraid.py
+      :language: python
+
+.. tab:: C++
+
+   .. literalinclude:: ../../targets/cpp/qbraid.cpp
+      :language: cpp
+
+
 .. _quantinuum-examples:
 
 Quantinuum
@@ -192,23 +210,6 @@ The following code illustrates how to run kernels on Quantinuum's backends.
    .. literalinclude:: ../../targets/cpp/quantinuum.cpp
       :language: cpp
 
-
-.. _quantum-circuits-examples:
-
-Quantum Circuits, Inc.
-========================
-
-The following code illustrates how to run kernels on Quantum Circuits' backends.
-
-.. tab:: Python
-
-   .. literalinclude:: ../../targets/python/qci.py
-      :language: python
-
-.. tab:: C++
-
-   .. literalinclude:: ../../targets/cpp/qci.cpp
-      :language: cpp
 
 .. _quantum-machines-examples:
 

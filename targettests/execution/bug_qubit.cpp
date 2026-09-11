@@ -22,7 +22,6 @@
 // RUN: if %qbraid_avail; then nvq++ --target qbraid --emulate %s -o %t && %t; fi
 // RUN: nvq++ --target quantinuum --emulate %s -o %t && %t
 // RUN: if %braket_avail; then nvq++ --target braket --emulate %s -o %t && %t; fi
-// RUN: if %qci_avail; then nvq++ --target qci --emulate %s -o %t && %t; fi
 // RUN: cudaq-quake %s | cudaq-opt --promote-qubit-allocation | FileCheck --check-prefixes=MLIR %s
 // clang-format on
 
@@ -37,12 +36,12 @@ struct simple_x {
   }
 };
 
-// clang-format on
+// clang-format off
 // MLIR-LABEL:   func.func @__nvqpp__mlirgen__simple_x()
 // MLIR-NOT:       quake.alloca !quake.ref
 // MLIR:           %[[VAL_0:.*]] = quake.alloca !quake.veq<1>
 // MLIR-NEXT:      %[[VAL_1:.*]] = quake.extract_ref %[[VAL_0]][0] : (!quake.veq<1>) -> !quake.ref
-// clang-format off
+// clang-format on
 
 int main() {
   auto result = cudaq::sample(simple_x{});

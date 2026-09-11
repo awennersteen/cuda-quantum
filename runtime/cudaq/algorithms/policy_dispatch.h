@@ -30,7 +30,7 @@ namespace cudaq::policies {
 ///     [&]{ return finalizeExecutionContext(policy, context); },
 ///     [&](sample_result&&  r) { context.sample_data  = std::move(r.data); },
 ///     [&](run_result&&     r) { context.exit_code    = r.exit_code; },
-///     [&](void_result)        { context.result       = {}; }
+///     [&](void_result)        { /* nothing to store */ }
 ///   );
 /// });
 /// @endcode
@@ -70,26 +70,36 @@ namespace cudaq::policies {
 /// });
 /// @endcode
 template <typename Func>
-void withPolicy(std::string_view name, Func &&func) {
+decltype(auto) withPolicy(std::string_view name, Func &&func) {
   using FuncRef = std::remove_reference_t<Func> &;
-  using Entry = std::pair<std::string_view, void (*)(FuncRef)>;
+  using Ret = decltype(std::declval<FuncRef>()(std::declval<other_policies>()));
+  using Entry = std::pair<std::string_view, Ret (*)(FuncRef)>;
 
   // One static array per Func instantiation — initialized once, no heap
   // allocation. To add a new policy, append an entry here and define the policy
   // struct above.
   static const Entry registry[] = {
-      {"sample", [](FuncRef f) { f(sample_policy{}); }},
-      {"observe", [](FuncRef f) { f(observe_policy{}); }},
+      {"sample", [](FuncRef f) -> Ret { return f(sample_policy{}); }},
+      {"observe", [](FuncRef f) -> Ret { return f(observe_policy{}); }},
+      {"run", [](FuncRef f) -> Ret { return f(run_policy{}); }},
+      {"dem", [](FuncRef f) -> Ret { return f(dem_policy{}); }},
+      {estimate_policy::name,
+       [](FuncRef f) -> Ret { return f(estimate_policy{}); }},
+      {"msm_size", [](FuncRef f) -> Ret { return f(msm_size_policy{}); }},
+      {"msm", [](FuncRef f) -> Ret { return f(msm_policy{}); }},
+      {"ptsbe-sample",
+       [](FuncRef f) -> Ret { return f(ptsbe::sample_policy{}); }},
+      {"orca-sample",
+       [](FuncRef f) -> Ret { return f(orca::sample_policy{}); }},
   };
 
   for (auto &[key, dispatch] : registry) {
     if (name == key) {
-      dispatch(func);
-      return;
+      return dispatch(func);
     }
   }
 
-  func(other_policies{});
+  return func(other_policies{});
 }
 
 // =============================================================================
@@ -183,7 +193,7 @@ void invokeVisitor(Visitor &&visitor, Func &&func) {
 ///     [&](run_result&&     r) { context.exit_code    = r.exit_code; },
 ///     [&](observe_result&& r) { context.observations =
 ///     std::move(r.observations); },
-///     [&](void_result)        { context.result       = {}; }
+///     [&](void_result)        { /* nothing to store */ }
 ///   );
 /// });
 /// @endcode

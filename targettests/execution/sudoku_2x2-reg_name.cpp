@@ -14,11 +14,10 @@
 // RUN: if %oqc_avail; then nvq++ --target oqc        --emulate %s -o %t && %t | FileCheck %s; fi
 // RUN: if %qbraid_avail; then nvq++ --target qbraid     --emulate %s -o %t && %t | FileCheck %s; fi
 // RUN: nvq++ --target quantinuum --emulate %s -o %t && %t | FileCheck %s
-// RUN: if %qci_avail; then nvq++ --target qci --emulate %s -o %t && %t | FileCheck %s; fi
 // clang-format on
 
-#include <cudaq.h>
 #include <algorithm>
+#include <cudaq.h>
 #include <iostream>
 #include <unordered_set>
 
@@ -61,7 +60,7 @@ int main() {
   for (auto &&[bits, count] : result) {
     strings.push_back(bits);
   }
-  std::sort(strings.begin(), strings.end(), [&](auto& a, auto& b) {
+  std::sort(strings.begin(), strings.end(), [&](auto &a, auto &b) {
     return result.count(a) > result.count(b);
   });
   std::cout << strings[0] << '\n';

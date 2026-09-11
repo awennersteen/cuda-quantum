@@ -13,6 +13,8 @@ import pytest
 import random
 import numpy as np
 import os
+import subprocess
+import sys
 from typing import List
 
 import cudaq
@@ -830,6 +832,7 @@ def test_can_progressively_build():
     """Tests that a kernel can be build progressively."""
     cudaq.reset_target()
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     q = kernel.qalloc(2)
     kernel.h(q[0])
     print(kernel)
@@ -1037,6 +1040,7 @@ def test_pauli_word_input():
     h = h2_hamiltonian_4q()
 
     kernel, theta, paulis = cudaq.make_kernel(float, list[cudaq.pauli_word])
+    kernel.disable_quantum_optimization()
     q = kernel.qalloc(4)
     kernel.x(q[0])
     kernel.x(q[1])
@@ -1051,6 +1055,7 @@ def test_pauli_word_input():
 def test_exp_pauli():
     cudaq.reset_target()
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     qubits = kernel.qalloc(4)
     kernel.x(qubits[0])
     kernel.x(qubits[1])
@@ -1062,6 +1067,7 @@ def test_exp_pauli():
     assert np.isclose(want_exp, -1.13, atol=1e-2)
 
     kernel, theta = cudaq.make_kernel(float)
+    kernel.disable_quantum_optimization()
     qubits = kernel.qalloc(4)
     kernel.x(qubits[0])
     kernel.x(qubits[1])
@@ -1070,6 +1076,7 @@ def test_exp_pauli():
     assert np.isclose(want_exp, -1.13, atol=1e-2)
 
     kernel, theta = cudaq.make_kernel(float)
+    kernel.disable_quantum_optimization()
     qubits = kernel.qalloc(4)
     kernel.x(qubits[0])
     kernel.x(qubits[1])
@@ -1090,6 +1097,7 @@ def test_exp_pauli_register_and_qubits():
 
     # Case 1: register + individual qubit
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     qreg = kernel.qalloc(2)
     q_extra = kernel.qalloc()
     kernel.exp_pauli(1.0, qreg, q_extra, 'XXX')
@@ -1099,6 +1107,7 @@ def test_exp_pauli_register_and_qubits():
 
     # Case 2: register + multiple individual qubits
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     qreg = kernel.qalloc(2)
     q0 = kernel.qalloc()
     q1 = kernel.qalloc()
@@ -1109,6 +1118,7 @@ def test_exp_pauli_register_and_qubits():
 
     # Case 3: individual qubits only (no register) should still work
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     q0 = kernel.qalloc()
     q1 = kernel.qalloc()
     kernel.exp_pauli(1.0, q0, q1, 'XX')
@@ -1117,6 +1127,7 @@ def test_exp_pauli_register_and_qubits():
 
     # Case 4: register only (no individual qubits) should still work
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     qreg = kernel.qalloc(2)
     kernel.exp_pauli(1.0, qreg, 'XX')
     counts = cudaq.sample(kernel)
@@ -1219,6 +1230,7 @@ def test_call_kernel_expressions_List():
         ry(val[0], qubits[qbit])
 
     ansatz = cudaq.make_kernel()
+    ansatz.disable_quantum_optimization()
     qubits = ansatz.qalloc(2)
     ansatz.x(qubits[0])
     ansatz.apply_call(kernelThatTakesIntAndListFloat, qubits, 1, [.59])
@@ -1266,6 +1278,7 @@ def test_call_kernel_expressions_list():
         ry(val[0], qubits[qbit])
 
     ansatz = cudaq.make_kernel()
+    ansatz.disable_quantum_optimization()
     qubits = ansatz.qalloc(2)
     ansatz.x(qubits[0])
     ansatz.apply_call(kernelThatTakesIntAndListFloat, qubits, 1, [.59])
@@ -1355,8 +1368,8 @@ def test_apply_call_captures_from_definition_scope():
 
 def test_sample_with_no_qubits():
     kernel = cudaq.make_kernel()
-    with pytest.raises(RuntimeError) as e:
-        cudaq.sample(kernel)
+    histogram = cudaq.sample(kernel)
+    assert (not len(histogram))
 
 
 def test_adequate_number_params():
@@ -1385,6 +1398,7 @@ def test_draw():
     zaz.sdg(q)
 
     kernel = cudaq.make_kernel()
+    kernel.disable_quantum_optimization()
     q = kernel.qalloc(4)
 
     kernel.h(q)
@@ -1533,6 +1547,42 @@ def test_call_invalid_attribute_on_a_kernel():
         kernel.op(q[0])
         result = cudaq.sample(kernel, cudaq.pauli_word("X"))
     assert "not supported on PyKernel" in str(e.value)
+
+
+def test_repeated_builder_launch_no_segfault():
+    """A ``list[bool]`` arg used to corrupt the heap during argument synthesis,
+    crashing a repeated ``make_kernel`` + ``sample`` loop at a random iteration.
+
+    The crash only surfaces when the bit-packed ``std::vector<bool>`` padding is
+    nonzero, so run under ``MALLOC_PERTURB_`` (set before the process starts) in
+    a subprocess. See ``runtime/test/Regress/argument_conversion.cpp`` for the
+    unit-level regression.
+    """
+    script = (
+        "import cudaq\n"
+        "from typing import List\n"
+        "cudaq.set_target('qpp-cpu')\n"
+        "for _ in range(512):\n"
+        "    kernel, *_ = cudaq.make_kernel(bool, list[bool], List[int], list[float])\n"
+        "    kernel.disable_quantum_optimization()\n"
+        "    kernel.qalloc(1)\n"
+        "    cudaq.sample(kernel, False, [False], [3], [3.5])\n"
+        "    cudaq.sample(kernel, False, [], [], [])\n"
+        "print('OK')\n")
+    env = dict(os.environ)
+    # Dirty fresh allocations so the std::vector<bool> padding is never zero,
+    # otherwise the corruption stays latent and the test passes with the bug.
+    env["MALLOC_PERTURB_"] = "165"
+    proc = subprocess.run([sys.executable, "-c", script],
+                          env=env,
+                          capture_output=True,
+                          text=True,
+                          timeout=900)
+    assert proc.returncode == 0, ("repeated make_kernel/sample crashed "
+                                  f"(returncode={proc.returncode}).\n"
+                                  f"stdout:\n{proc.stdout}\n"
+                                  f"stderr (tail):\n{proc.stderr[-3000:]}")
+    assert "OK" in proc.stdout
 
 
 # leave for gdb debugging

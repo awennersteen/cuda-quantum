@@ -8,6 +8,7 @@
 
 #include "nvqir/CircuitSimulator.h"
 #include "cudaq/operators.h"
+#include "cudaq/ptsbe/PTSBESampler.h"
 #include "cudaq/qis/managers/BasicExecutionManager.h"
 #include "cudaq/qis/qudit.h"
 #include "cudaq/runtime/logger/logger.h"
@@ -167,10 +168,37 @@ protected:
     return simulator()->finalizeExecutionContext(policy);
   }
 
-  observe_result finalizeExecutionContext(const observe_policy &policy,
-                                          ExecutionContext &ctx) override {
+  observe_result
+  finalizeExecutionContext(const observe_policy &policy) override {
     finalizeExecutionContextImpl();
-    return simulator()->finalizeExecutionContext(policy, ctx);
+    return simulator()->finalizeExecutionContext(policy);
+  }
+
+  run_result finalizeExecutionContext(const run_policy &policy) override {
+    finalizeExecutionContextImpl();
+    return simulator()->finalizeExecutionContext(policy);
+  }
+
+  msm_dimensions
+  finalizeExecutionContext(const msm_size_policy &policy) override {
+    finalizeExecutionContextImpl();
+    return simulator()->finalizeExecutionContext(policy);
+  }
+
+  msm_result finalizeExecutionContext(const msm_policy &policy) override {
+    finalizeExecutionContextImpl();
+    return simulator()->finalizeExecutionContext(policy);
+  }
+
+  dem_result finalizeExecutionContext(const dem_policy &policy) override {
+    finalizeExecutionContextImpl();
+    return simulator()->finalizeExecutionContext(policy);
+  }
+
+  ptsbe::sample_policy::result_type
+  finalizeExecutionContext(const ptsbe::sample_policy &policy) override {
+    finalizeExecutionContextImpl();
+    return cudaq::ptsbe::detail::finalizePTSBE(policy);
   }
 
   void finalizeExecutionContext(const other_policies &policy,
@@ -301,6 +329,12 @@ public:
   virtual ~DefaultExecutionManager() = default;
 
   void resetQudit(const cudaq::QuditInfo &q) override {
+    if (isInTracerMode()) {
+      auto *ctx = cudaq::getExecutionContext();
+      if (ctx)
+        ctx->kernelTrace.appendMeasurement("reset", {q});
+      return;
+    }
     flushRequestedAllocations();
     simulator()->resetQubit(q.id);
   }

@@ -11,7 +11,7 @@
 # Run CUDA-Q test suite (ctest + llvm-lit)
 # Used by both Linux and macOS CI, and for local development.
 #
-# Usage: bash scripts/run_tests.sh [-v] [-B build_dir]
+# Usage: bash scripts/run_tests.sh [-v] [-B build_dir] [-j num_jobs]
 #
 # Note: GPU tests will fail gracefully on macOS (no CUDA available)
 
@@ -20,11 +20,21 @@ source "$this_file_dir/set_env_defaults.sh"
 
 build_dir="build"
 verbose=""
+num_jobs=""
 
-while getopts ":vB:" opt; do
+while getopts ":vB:j:" opt; do
   case $opt in
     v) verbose="-v" ;;
     B) build_dir="$OPTARG" ;;
+    j) num_jobs="$OPTARG" ;;
+    :)
+      echo "::error::Option -$OPTARG requires an argument"
+      exit 1
+      ;;
+    \?)
+      echo "::error::Invalid option: -$OPTARG"
+      exit 1
+      ;;
   esac
 done
 
@@ -39,12 +49,27 @@ status_sum=0
 # Set PYTHONPATH to find the built cudaq module
 export PYTHONPATH="$build_dir/python:${PYTHONPATH:-}"
 
-# Determine number of parallel jobs (use all available CPUs)
+# Determine number of parallel jobs (use all available CPUs unless -j is set)
 if [ "$(uname)" = "Darwin" ]; then
-  num_jobs=$(sysctl -n hw.ncpu)
+  max_jobs=$(sysctl -n hw.ncpu)
 else
-  num_jobs=$(nproc)
+  # nproc would return OMP_NUM_THREADS if set, which defeats our purpose.
+  # Unset OMP_NUM_THREADS and OMP_THREAD_LIMIT to get the real number of cores.
+  max_jobs=$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc --all)
 fi
+if [ -n "$num_jobs" ]; then
+  if ! [[ "$num_jobs" =~ ^[1-9][0-9]*$ ]]; then
+    echo "::error::-j requires a positive integer, got: $num_jobs"
+    exit 1
+  fi
+  # Allow some oversubscription to 2 * max_jobs
+  if [ "$num_jobs" -gt $((2 * max_jobs)) ]; then
+    num_jobs=$((2 * max_jobs))
+  fi
+else
+  num_jobs=$max_jobs
+fi
+if [ "$num_jobs" -lt 1 ]; then num_jobs=1; fi
 
 # Thread budget to avoid OpenMP oversubscription.
 # OpenMP-parallel tests (qpp, dm simulators) each use OMP_NUM_THREADS cores.
@@ -76,11 +101,12 @@ fi
 
 # 1. CTest: all gtest tests in parallel.
 # Exclude lit test suites from ctest -- they are run individually below.
+# Keep ctest-cudaq-unit in this pass; it wraps gtest-based cudaq/unittests.
 # GPU tests serialize automatically via RESOURCE_LOCK "gpu" in CMakeLists.txt.
 # On machines without a GPU, $gpu_excludes skips gpu_required tests.
 echo "=== Running ctest ==="
 ctest --output-on-failure --test-dir "$build_dir" -j "$num_jobs" \
-  -E "ctest-nvqpp|ctest-targettests|pycudaq-mlir" $gpu_excludes
+  -E "^(ctest-cudaq|ctest-targettests|ctest-runtime|pycudaq-mlir)$" $gpu_excludes
 ctest_status=$?
 if [ $ctest_status -ne 0 ]; then
   echo "::error::ctest failed with status $ctest_status"
@@ -90,7 +116,7 @@ fi
 # 2. Main lit tests
 echo "=== Running llvm-lit (build/cudaq/test) ==="
 "$LLVM_INSTALL_PREFIX/bin/llvm-lit" $verbose --time-tests -j "$num_jobs" \
-  --param nvqpp_site_config="$build_dir/cudaq/test/lit.site.cfg.py" \
+  --param cudaq_site_config="$build_dir/cudaq/test/lit.site.cfg.py" \
   "$build_dir/cudaq/test"
 lit_status=$?
 if [ $lit_status -ne 0 ]; then
@@ -98,10 +124,21 @@ if [ $lit_status -ne 0 ]; then
   status_sum=$((status_sum + 1))
 fi
 
-# 3. Target tests
+# 3. Runtime tests
+echo "=== Running llvm-lit (build/runtime/test) ==="
+"$LLVM_INSTALL_PREFIX/bin/llvm-lit" $verbose --time-tests -j "$parallel_jobs" \
+  --param cudaq_site_config="$build_dir/runtime/test/lit.site.cfg.py" \
+  "$build_dir/runtime/test"
+runtime_status=$?
+if [ $runtime_status -ne 0 ]; then
+  echo "::error::llvm-lit (build/runtime/test) failed with status $runtime_status"
+  status_sum=$((status_sum + 1))
+fi
+
+# 4. Target tests
 echo "=== Running llvm-lit (build/targettests) ==="
 "$LLVM_INSTALL_PREFIX/bin/llvm-lit" $verbose --time-tests -j "$parallel_jobs" \
-  --param nvqpp_site_config="$build_dir/targettests/lit.site.cfg.py" \
+  --param cudaq_site_config="$build_dir/targettests/lit.site.cfg.py" \
   "$build_dir/targettests"
 targ_status=$?
 if [ $targ_status -ne 0 ]; then
@@ -109,10 +146,10 @@ if [ $targ_status -ne 0 ]; then
   status_sum=$((status_sum + 1))
 fi
 
-# 4. Python MLIR tests
+# 5. Python MLIR tests
 echo "=== Running llvm-lit (python/tests/mlir) ==="
 "$LLVM_INSTALL_PREFIX/bin/llvm-lit" $verbose --time-tests -j "$parallel_jobs" \
-  --param nvqpp_site_config="$build_dir/python/tests/mlir/lit.site.cfg.py" \
+  --param cudaq_site_config="$build_dir/python/tests/mlir/lit.site.cfg.py" \
   "$build_dir/python/tests/mlir"
 pymlir_status=$?
 if [ $pymlir_status -ne 0 ]; then
@@ -120,7 +157,7 @@ if [ $pymlir_status -ne 0 ]; then
   status_sum=$((status_sum + 1))
 fi
 
-# 5. Python interop tests
+# 6. Python interop tests
 echo "=== Running pytest (interop tests) ==="
 python3 -m pytest $verbose --durations=0 "$build_dir/python/tests/interop/"
 pytest_status=$?

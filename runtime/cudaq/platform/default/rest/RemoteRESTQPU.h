@@ -9,6 +9,7 @@
 #pragma once
 
 #include "common/BaseRemoteRESTQPU.h"
+#include "common/CompiledModule.h"
 
 namespace cudaq {
 
@@ -17,6 +18,10 @@ namespace cudaq {
 /// services via a REST Client / Server interaction.
 class RemoteRESTQPU : public BaseRemoteRESTQPU {
 public:
+  // Overrides the `sample`/`observe` `launchKernel` overloads but inherits
+  // others (eg `launchKernel(dem_policy)`) from `BaseRemoteRESTQPU`.
+  using BaseRemoteRESTQPU::launchKernel;
+
   RemoteRESTQPU() : BaseRemoteRESTQPU() {}
   RemoteRESTQPU(RemoteRESTQPU &&) = delete;
   ~RemoteRESTQPU() override;
@@ -28,12 +33,30 @@ public:
   KernelThunkResultType unifiedLaunchModule(const AnyModule &module,
                                             KernelArgs args) override;
 
-  sample_result launchKernel(sample_policy &policy, const AnyModule &module,
+  using QPU::launchKernel;
+  sample_result launchKernel(const sample_policy &policy,
+                             const CompiledModule &module,
                              KernelArgs args) override;
 
-  async_sample_result launchKernel(async_sample_policy &policy,
-                                   const AnyModule &module,
+  async_sample_result launchKernel(const async_sample_policy &policy,
+                                   const CompiledModule &module,
                                    KernelArgs args) override;
+
+  observe_result launchKernel(const observe_policy &policy,
+                              const CompiledModule &module,
+                              KernelArgs args) override;
+
+  run_result launchKernel(const run_policy &policy,
+                          const CompiledModule &module,
+                          KernelArgs args) override;
+
+  async_run_result launchKernel(const async_run_policy &policy,
+                                const CompiledModule &module,
+                                KernelArgs args) override;
+
+  async_observe_result launchKernel(const async_observe_policy &policy,
+                                    const CompiledModule &module,
+                                    KernelArgs args) override;
 };
 
 } // namespace cudaq
