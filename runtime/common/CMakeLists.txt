@@ -11,7 +11,9 @@ set(LIBRARY_NAME cudaq-common)
 
 set(COMMON_EXTRA_DEPS "")
 set(COMMON_RUNTIME_SRC
+  AnalogEmulation.cpp
   AnalogHamiltonian.cpp
+  AnalogRydberg.cpp
   AnalysisScope.cpp
   CodeGenConfig.cpp
   CompileTarget.cpp
@@ -19,6 +21,7 @@ set(COMMON_RUNTIME_SRC
   CustomOp.cpp
   DeviceCodeRegistry.cpp
   Environment.cpp
+  EstimateResult.cpp
   ExecutionContext.cpp
   Executor.cpp
   ExtraPayloadProvider.cpp
